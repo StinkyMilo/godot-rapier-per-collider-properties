@@ -4,3 +4,9 @@ Check for them whenever setting material in body.rs. Skip set (or just set to de
 Figure out how to make this editable in the node itself.
     Add fn to rapier_physics_server_extra.rs (except they don't have RID's)
     If I can get a ColliderHandle object from the engine, I can set a collider via a physics_engine.* call to collider.rs kinda like `physics_engine.collider_set_filter_contacts_enabled`
+    One potential way: get_all_physics_nodes_in_space(&root_node, space_rid)
+     if let Some(co2d) = self.base().try_get_node_as::<CollisionObject2D>(&nodepath)
+        colliders are not collisionobjects (bodies & areas are), but that's colse. Should be doable to try_get_node_as<CollisionShape2D>
+        use godot::classes::CollisionObject2D;, hopefully legit to replace with CollisionShape2D
+        I think lines 490-511 of state_manager do a version of what I want, but it's weird
+        No, look at 590-609. A collisionObject2D calls get shape owners or similar then can iterate through.
