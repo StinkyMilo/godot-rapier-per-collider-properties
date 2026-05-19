@@ -1,0 +1,6 @@
+Add an "Override friction" optional property and an "Override bounce" optional property to collider.rs
+    They contain either None or the value to override to.
+Check for them whenever setting material in body.rs. Skip set (or just set to default) whenever setting in body.rs
+Figure out how to make this editable in the node itself.
+    Add fn to rapier_physics_server_extra.rs (except they don't have RID's)
+    If I can get a ColliderHandle object from the engine, I can set a collider via a physics_engine.* call to collider.rs kinda like `physics_engine.collider_set_filter_contacts_enabled`
