@@ -10,3 +10,23 @@ Figure out how to make this editable in the node itself.
         use godot::classes::CollisionObject2D;, hopefully legit to replace with CollisionShape2D
         I think lines 490-511 of state_manager do a version of what I want, but it's weird
         No, look at 590-609. A collisionObject2D calls get shape owners or similar then can iterate through.
+        Then we just need to get a ColliderHandle out of that shape. Which may be another difficult step
+        Also no clue why the shape has an RID. It's not exposed in Godot if it does
+    create_shaep on rapier_collision_object_base.rs
+    we know how to get all shapes associated with a collision object. we just need to find how to convert a godot shape2d to a colliderhandle
+    Only functions that return ColliderHandles are for creating or destroying
+    I think collision objects have a Colliders property that they iterate over, maybe. Or am I just remembering the shape owners again?
+        not misremembering. body_get_colliders in body.rs
+        So that's how we do it. We just need a way of identifying the colliders
+        CollisionObjectShape has a ColliderHandle property.
+        Ok! collision_object.get_base().state.shapes[i] seems to be a thing
+        So we just need an RID -> collision_object, which I think is doable. Well we can do it from a node path, so I think that's a plan!
+
+Node path -> CollisionObject2D. Iterate through object.get_base().state.shapes to find the right CollisionObjectShape, then get ColliderHandle from that. 
+    Add functions in collider.rs to update the material.
+
+Now all that's left is just exposing a function, which I think I've seen where I can do.
+
+
+Alternate solution to all this: use multiple bodies & joints. They might work better through rapier, actually. You also might still be able to make them children by setting top_level to true
+But this is actually more graceful if I'm right that it's supported.
