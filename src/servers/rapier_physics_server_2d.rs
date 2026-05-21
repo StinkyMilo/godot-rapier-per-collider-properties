@@ -327,6 +327,11 @@ impl IPhysicsServer2DExtension for RapierPhysicsServer2D {
             .body_set_shape_disabled(body, shape_idx, disabled)
     }
 
+    fn body_set_shape_material_properties(&mut self, body: Rid, shape_idx: i32, friction: f32, restitution: f32){
+        self.implementation
+            .body_set_shape_material_properties(body,shape_idx,friction,restitution)
+    }
+
     fn body_set_shape_as_one_way_collision(
         &mut self,
         body: Rid,

@@ -308,6 +308,11 @@ impl IPhysicsServer3DExtension for RapierPhysicsServer3D {
             .body_set_shape_disabled(body, shape_idx, disabled)
     }
 
+    fn body_set_shape_material_properties(&mut self, body: Rid, shape_idx: i32, friction: f32, restitution: f32){
+        self.implementation
+            .body_set_shape_material_properties(body,shape_idx,friction,restitution)
+    }
+
     fn body_remove_shape(&mut self, body: Rid, shape_idx: i32) {
         self.implementation.body_remove_shape(body, shape_idx);
     }

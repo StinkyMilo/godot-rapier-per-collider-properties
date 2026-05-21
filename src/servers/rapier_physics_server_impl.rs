@@ -948,6 +948,10 @@ impl RapierPhysicsServerImpl {
         }
     }
 
+    pub(super) fn body_set_shape_material_properties(&mut self, body: Rid, shape_idx: i32, friction: f32, restitution: f32){
+
+    }
+
     #[cfg(feature = "dim2")]
     pub(super) fn body_set_shape_as_one_way_collision(
         &mut self,

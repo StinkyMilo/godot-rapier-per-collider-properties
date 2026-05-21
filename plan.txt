@@ -28,5 +28,9 @@ Node path -> CollisionObject2D. Iterate through object.get_base().state.shapes t
 Now all that's left is just exposing a function, which I think I've seen where I can do.
 
 
+Nvm, other things exist like set_shape_disabled which takes a body and a shape index
+You can get a shape RID from PhysicsServer2D.body_get_shape in engine
+Shape2D's DO have RID's. CollisionShape2D's don't.
+
 Alternate solution to all this: use multiple bodies & joints. They might work better through rapier, actually. You also might still be able to make them children by setting top_level to true
 But this is actually more graceful if I'm right that it's supported.
