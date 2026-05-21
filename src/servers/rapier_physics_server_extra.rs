@@ -88,6 +88,22 @@ macro_rules! make_rapier_server_godot_impl {
             }
 
             #[func]
+            pub fn set_shape_material_properties( body: Rid, shape_idx: i32, friction: f32, restitution: f32){
+                let physics_data = physics_data();
+                if let Some(body) = physics_data.collision_objects.get_mut(&body)
+                    && let Some(body) = body.get_mut_body()
+                {
+                    let p_index = shape_idx as usize;
+                    if p_index >= body.get_base().state.shapes.len(){
+                        return;
+                    }
+                    let shape = body.get_base().state.shapes[p_index];
+                    let collider_handle = shape.collider_handle;
+                    
+                }
+            }
+
+            #[func]
             /// Set an extra parameter for a joint.
             /// If [param param] is [member JOINT_TYPE] (0), sets if multibody or not.
             /// Use [member JOINT_TYPE_INPULSE_JOINT] (0) for impulse joints, [member JOINT_TYPE_MULTIBODY_JOINT] (1) for multibody joints or [member JOINT_TYPE_MULTIBODY_KINEMATIC_JOINT] (2) for multibody kinematic joint.
