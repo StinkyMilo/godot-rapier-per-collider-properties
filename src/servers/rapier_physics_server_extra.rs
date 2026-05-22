@@ -99,7 +99,13 @@ macro_rules! make_rapier_server_godot_impl {
                     }
                     let shape = body.get_base().state.shapes[p_index];
                     let collider_handle = shape.collider_handle;
-                    
+                    //TODO: Need to somehow get the world
+                    //Can do physicsengine.get_mut_world(world_handle) but you need a world handle
+                    //world handle is body.base.get_space_id()
+                    if let Some(world) = physics_data.physics_engine.get_mut_world(body.base.get_space_id()) && let Some(col) = world.physics_objects.collider_set.get_mut(collider_handle)
+                    {
+                        //Does this compile?
+                    }
                 }
             }
 

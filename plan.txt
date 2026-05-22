@@ -39,5 +39,9 @@ Important stuff:
     collider.set_friction_combine_rule(CoefficientCombineRule::Min);
     collider.set_restitution_combine_rule(CoefficientCombineRule::ClampedSum);
 
+This might not actually work. rapier_body.rs also has a material and I'm not sure which is used
+    No nvm it calls body_update_material and updates it for its children. So as long as we
+    have it as an exception in the collider we should be good!
+
 Alternate solution to all this: use multiple bodies & joints. They might work better through rapier, actually. You also might still be able to make them children by setting top_level to true
 But this is actually more graceful if I'm right that it's supported.

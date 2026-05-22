@@ -184,7 +184,7 @@ pub struct RapierBody {
     direct_state_array: VarArray,
     force_integration_array: VarArray,
     state: RapierBodyState,
-    base: RapierCollisionObjectBase,
+    pub base: RapierCollisionObjectBase,
 }
 impl RapierBody {
     pub fn new(id: RapierId, rid: Rid) -> Self {
