@@ -102,9 +102,14 @@ macro_rules! make_rapier_server_godot_impl {
                     //TODO: Need to somehow get the world
                     //Can do physicsengine.get_mut_world(world_handle) but you need a world handle
                     //world handle is body.base.get_space_id()
-                    if let Some(world) = physics_data.physics_engine.get_mut_world(body.base.get_space_id()) && let Some(col) = world.physics_objects.collider_set.get_mut(collider_handle)
+                    if let Some(world) = physics_data.physics_engine.get_mut_world(body.base.get_space_id()) && let Some(collider) = world.physics_objects.collider_set.get_mut(collider_handle)
                     {
-                        //Does this compile?
+                        //TODO: Might need an extra flag to store whether it's been set this way
+                        //so that changes to the body's material don't override it
+                        //But that's hard because it's part of rapier rather than godot rapier
+                        //But we could probably find somewhere in godot rapier to store it.
+                        collider.set_friction(friction);
+                        collider.set_restitution(restitution);
                     }
                 }
             }
