@@ -5,6 +5,7 @@ use godot::classes::native::PhysicsServer3DExtensionMotionResult;
 use godot::classes::physics_server_3d;
 use godot::classes::physics_server_3d::*;
 use godot::classes::{self};
+use godot::meta::conv::RawPtr;
 use godot::prelude::*;
 
 use super::rapier_physics_server_impl::RapierPhysicsServerImpl;
@@ -530,7 +531,7 @@ impl IPhysicsServer3DExtension for RapierPhysicsServer3D {
         max_collisions: i32,
         collide_separation_ray: bool,
         recovery_as_collision: bool,
-        result: *mut PhysicsServer3DExtensionMotionResult,
+        result: RawPtr<*mut PhysicsServer3DExtensionMotionResult>,
     ) -> bool {
         unsafe {
             self.implementation.body_test_motion(
@@ -655,12 +656,15 @@ impl IPhysicsServer3DExtension for RapierPhysicsServer3D {
         false
     }
 
+    #[cfg(not(feature = "api-4-4"))]
     fn soft_body_set_shrinking_factor(&mut self, _: godot::prelude::Rid, _: f32) {}
 
+    #[cfg(not(feature = "api-4-4"))]
     fn soft_body_get_shrinking_factor(&self, _: godot::prelude::Rid) -> f32 {
         0.0
     }
 
+    #[cfg(not(feature = "api-4-4"))]
     fn soft_body_apply_point_impulse(
         &mut self,
         _: godot::prelude::Rid,
@@ -669,6 +673,7 @@ impl IPhysicsServer3DExtension for RapierPhysicsServer3D {
     ) {
     }
 
+    #[cfg(not(feature = "api-4-4"))]
     fn soft_body_apply_point_force(
         &mut self,
         _: godot::prelude::Rid,
@@ -677,6 +682,7 @@ impl IPhysicsServer3DExtension for RapierPhysicsServer3D {
     ) {
     }
 
+    #[cfg(not(feature = "api-4-4"))]
     fn soft_body_apply_central_impulse(
         &mut self,
         _: godot::prelude::Rid,
@@ -684,6 +690,7 @@ impl IPhysicsServer3DExtension for RapierPhysicsServer3D {
     ) {
     }
 
+    #[cfg(not(feature = "api-4-4"))]
     fn soft_body_apply_central_force(
         &mut self,
         _: godot::prelude::Rid,

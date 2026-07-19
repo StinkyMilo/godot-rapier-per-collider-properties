@@ -2,8 +2,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use godot::classes::*;
-use godot::global::*;
 use godot::prelude::*;
+use godot::register::info::PropertyHint;
 use rapier::dynamics::IntegrationParameters;
 use rapier::math::Real;
 #[cfg(feature = "parallel")]
@@ -40,6 +40,8 @@ const FLUID_SMOOTHING_FACTOR: &str = "physics/rapier/fluid/fluid_smoothing_facto
 const FLUID_BOUNDARY_COEFF: &str = "physics/rapier/fluid/fluid_boundary_coefficient";
 #[cfg(feature = "dim2")]
 const LENGTH_UNIT: &str = "physics/rapier/solver/length_unit_2d";
+#[cfg(feature = "dim2")]
+const ORIENTED_CONCAVE_POLYLINE: &str = "physics/rapier/logic/oriented_concave_polyline_2d";
 #[cfg(feature = "dim2")]
 const GHOST_COLLISION_DISTANCE: &str = "physics/rapier/logic/ghost_collision_distance_2d";
 #[cfg(feature = "dim3")]
@@ -204,6 +206,14 @@ impl RapierProjectSettings {
             Variant::from(GHOST_COLLISION_DISTANCE_DEFAULT),
             "0,10,0.00001,or_greater",
             false,
+        );
+        #[cfg(feature = "dim2")]
+        register_setting(
+            ORIENTED_CONCAVE_POLYLINE,
+            Variant::from(false),
+            false,
+            PropertyHint::NONE,
+            "",
         );
         register_setting_ranged(
             FLUID_PARTICLE_RADIUS,
@@ -435,6 +445,14 @@ impl RapierProjectSettings {
 
     pub fn get_ghost_collision_distance() -> Real {
         RapierProjectSettings::get_setting_double(GHOST_COLLISION_DISTANCE) as Real
+    }
+
+    #[cfg(feature = "dim2")]
+    pub fn get_oriented_concave_polyline() -> bool {
+        let project_settings = ProjectSettings::singleton();
+        project_settings
+            .get_setting_with_override(ORIENTED_CONCAVE_POLYLINE)
+            .to::<bool>()
     }
 
     #[cfg(feature = "parallel")]

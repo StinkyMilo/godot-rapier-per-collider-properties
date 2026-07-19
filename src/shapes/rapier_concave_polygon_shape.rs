@@ -14,19 +14,13 @@ use crate::types::PackedVectorArray;
 pub struct RapierConcavePolygonShape {
     base: RapierShapeBase,
 }
-impl RapierConcavePolygonShape {
-    pub fn create(id: RapierId, rid: Rid, physics_shapes: &mut PhysicsShapes) {
-        let shape = Self {
-            base: RapierShapeBase::new(id, rid),
-        };
-        physics_shapes.insert(rid, RapierShape::RapierConcavePolygonShape(shape));
-    }
-}
+impl_rapier_shape_create!(RapierConcavePolygonShape, RapierConcavePolygonShape);
 impl RapierConcavePolygonShape {
     fn create_rapier_shape(
         &mut self,
         physics_engine: &mut PhysicsEngine,
         points: &PackedVectorArray,
+        backface_collision: bool,
     ) {
         let point_count = points.len();
         let mut rapier_points = Vec::with_capacity(point_count);
@@ -47,6 +41,7 @@ impl RapierConcavePolygonShape {
         physics_engine.shape_create_concave_polyline(
             &rapier_points,
             Some(segments),
+            backface_collision,
             self.base.get_id(),
         );
     }
@@ -70,6 +65,9 @@ impl IRapierShape for RapierConcavePolygonShape {
 
     fn set_data(&mut self, data: Variant, physics_engine: &mut PhysicsEngine) {
         let points_local;
+        // Godot's ConcavePolygonShape3D has a `backface_collision` toggle; 2D shapes don't.
+        #[cfg_attr(feature = "dim2", allow(unused_mut))]
+        let mut backface_collision = false;
         match data.get_type() {
             #[cfg(feature = "dim3")]
             VariantType::DICTIONARY => {
@@ -83,6 +81,9 @@ impl IRapierShape for RapierConcavePolygonShape {
                         return;
                     }
                     points_local = arr;
+                    if let Some(value) = dictionary.get("backface_collision") {
+                        backface_collision = value.try_to::<bool>().unwrap_or(false);
+                    }
                 } else {
                     godot_error!("ConcavePolygon3D data must be a PackedVector3Array");
                     return;
@@ -110,7 +111,7 @@ impl IRapierShape for RapierConcavePolygonShape {
                 return;
             }
         }
-        self.create_rapier_shape(physics_engine, &points_local);
+        self.create_rapier_shape(physics_engine, &points_local, backface_collision);
         self.base.reset_aabb(physics_engine);
     }
 
@@ -238,7 +239,8 @@ mod tests {
                 Vector::splat(4.0),
                 Vector::splat(5.0),
             ]);
-            let _ = dict.insert("faces", arr);
+            let _ = dict.insert("faces", &arr.to_variant());
+            let _ = dict.insert("backface_collision", &true.to_variant());
             concave_shape.set_data(dict.to_variant(), &mut physics_data().physics_engine);
             let data: PackedVectorArray = concave_shape
                 .get_data(&physics_data().physics_engine)

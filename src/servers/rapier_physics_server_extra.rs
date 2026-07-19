@@ -23,16 +23,19 @@ macro_rules! make_rapier_server_godot_impl {
     ($class: ident) => {
         use godot::global::rid_allocate_id;
         use godot::global::rid_from_int64;
+        #[cfg(feature = "serde-serialize")]
         use $crate::bodies::exportable_object::ExportableObject;
+        #[cfg(feature = "serde-serialize")]
         use $crate::bodies::exportable_object::ObjectExportState;
+        #[cfg(feature = "serde-serialize")]
         use $crate::bodies::exportable_object::ObjectImportState;
         use $crate::bodies::rapier_collision_object::IRapierCollisionObject;
         use $crate::fluids::rapier_fluid::RapierFluid;
         use $crate::joints::rapier_joint::IRapierJoint;
         use $crate::joints::rapier_joint::RapierJoint;
         use $crate::joints::rapier_joint_base::RapierJointType;
-        use $crate::servers::RapierPhysicsServer;
         use $crate::servers::rapier_physics_server_extra::RapierBodyParam;
+        use $crate::servers::try_rapier_physics_server;
         #[godot_api]
         impl $class {
             #[constant]
@@ -127,9 +130,7 @@ macro_rules! make_rapier_server_godot_impl {
                             2 => RapierJointType::MultiBodyKinematic,
                             _ => RapierJointType::Impulse, // default to Impulse
                         };
-                        let Ok(mut physics_singleton) =
-                            PhysicsServer::singleton().try_cast::<RapierPhysicsServer>()
-                        else {
+                        let Some(mut physics_singleton) = try_rapier_physics_server() else {
                             return;
                         };
                         physics_singleton
@@ -333,9 +334,7 @@ macro_rules! make_rapier_server_godot_impl {
             pub(crate) fn fluid_create() -> Rid {
                 let physics_data = physics_data();
                 let rid = rid_from_int64(rid_allocate_id());
-                let Ok(mut physics_singleton) =
-                    PhysicsServer::singleton().try_cast::<RapierPhysicsServer>()
-                else {
+                let Some(mut physics_singleton) = try_rapier_physics_server() else {
                     return Rid::Invalid;
                 };
                 let id = physics_singleton.bind_mut().implementation.next_id();
@@ -546,9 +545,7 @@ macro_rules! make_rapier_server_godot_impl {
             #[func]
             /// Get the active bodies in the space.
             fn space_get_active_bodies(space: Rid) -> Array<Rid> {
-                let Ok(physics_singleton) =
-                    PhysicsServer::singleton().try_cast::<RapierPhysicsServer>()
-                else {
+                let Some(physics_singleton) = try_rapier_physics_server() else {
                     return Array::default();
                 };
                 return physics_singleton
@@ -560,9 +557,7 @@ macro_rules! make_rapier_server_godot_impl {
             #[func]
             /// Get the bodies transform in the space.
             fn space_get_bodies_transform(space: Rid, bodies: Array<Rid>) -> Array<Transform> {
-                let Ok(physics_singleton) =
-                    PhysicsServer::singleton().try_cast::<RapierPhysicsServer>()
-                else {
+                let Some(physics_singleton) = try_rapier_physics_server() else {
                     return Array::default();
                 };
                 return physics_singleton
@@ -574,9 +569,7 @@ macro_rules! make_rapier_server_godot_impl {
             #[func]
             /// Step the space forward.
             pub fn space_step(space: Rid, delta: f32) {
-                let Ok(mut physics_singleton) =
-                    PhysicsServer::singleton().try_cast::<RapierPhysicsServer>()
-                else {
+                let Some(mut physics_singleton) = try_rapier_physics_server() else {
                     return;
                 };
                 physics_singleton
@@ -594,9 +587,7 @@ macro_rules! make_rapier_server_godot_impl {
             #[func]
             /// Get the id of the object by rid. The id can be saved and used when reloading the scene.
             fn get_rapier_id(rid: Rid) -> i64 {
-                let Ok(physics_singleton) =
-                    PhysicsServer::singleton().try_cast::<RapierPhysicsServer>()
-                else {
+                let Some(physics_singleton) = try_rapier_physics_server() else {
                     return 0;
                 };
                 return physics_singleton.bind().implementation.get_id(rid) as i64;
@@ -605,9 +596,7 @@ macro_rules! make_rapier_server_godot_impl {
             #[func]
             /// Get the global id of the physics server.
             fn get_global_id() -> i64 {
-                let Ok(physics_singleton) =
-                    PhysicsServer::singleton().try_cast::<RapierPhysicsServer>()
-                else {
+                let Some(physics_singleton) = try_rapier_physics_server() else {
                     return 0;
                 };
                 return physics_singleton.bind().implementation.id as i64;
@@ -616,9 +605,7 @@ macro_rules! make_rapier_server_godot_impl {
             #[func]
             /// Set the global id of the physics server.
             pub fn set_global_id(id: i64) {
-                let Ok(mut physics_singleton) =
-                    PhysicsServer::singleton().try_cast::<RapierPhysicsServer>()
-                else {
+                let Some(mut physics_singleton) = try_rapier_physics_server() else {
                     return;
                 };
                 physics_singleton.bind_mut().implementation.id = id as u64;

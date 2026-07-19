@@ -77,7 +77,10 @@ impl RapierDirectBodyStateImpl {
         if let Some(body) = physics_data.collision_objects.get(&self.body) {
             let base = body.get_base();
             if let Some(body) = body.get_body() {
-                return base.get_transform() * body.get_center_of_mass();
+                // Godot's center_of_mass is the offset of the center of mass from the body
+                // origin, expressed in global orientation (i.e. rotated but not translated).
+                let transform = base.get_transform();
+                return transform * body.get_center_of_mass() - transform.origin;
             }
         }
         Vector::ZERO
@@ -178,8 +181,13 @@ impl RapierDirectBodyStateImpl {
         if let Some(body) = physics_data.collision_objects.get_mut(&self.body)
             && let Some(body) = body.get_mut_body()
         {
-            body.get_mut_base()
-                .set_transform(transform, true, &mut physics_data.physics_engine);
+            body.set_state(
+                BodyState::TRANSFORM,
+                transform.to_variant(),
+                &mut physics_data.physics_engine,
+                &mut physics_data.spaces,
+                &physics_data.ids,
+            );
         }
     }
 
@@ -481,7 +489,12 @@ impl RapierDirectBodyStateImpl {
             && let Some(body) = body.get_body()
             && let Some(contact) = body.contacts().get(contact_idx as usize)
         {
-            return contact.collider_instance_id;
+            let rapier_id = contact.collider_instance_id;
+            if let Some(rid) = physics_data.ids.get(&rapier_id)
+                && let Some(collider_obj) = physics_data.collision_objects.get(rid)
+            {
+                return collider_obj.get_base().get_instance_id();
+            }
         }
         0
     }
@@ -492,11 +505,13 @@ impl RapierDirectBodyStateImpl {
             && let Some(body) = body.get_body()
             && let Some(contact) = body.contacts().get(contact_idx as usize)
         {
-            match Gd::try_from_instance_id(InstanceId::from_i64(
-                contact.collider_instance_id as i64,
-            )) {
-                Ok(object) => return Some(object),
-                Err(_) => return None,
+            let rapier_id = contact.collider_instance_id;
+            if let Some(rid) = physics_data.ids.get(&rapier_id)
+                && let Some(collider_obj) = physics_data.collision_objects.get(rid)
+            {
+                let instance_id =
+                    InstanceId::try_from_i64(collider_obj.get_base().get_instance_id() as i64)?;
+                return Gd::try_from_instance_id(instance_id).ok();
             }
         }
         None
@@ -555,6 +570,7 @@ impl RapierDirectBodyStateImpl {
         }
     }
 
+    #[cfg(not(feature = "api-4-4"))]
     pub(super) fn set_collision_layer(&mut self, layer: u32) {
         let physics_data = physics_data();
         if let Some(body) = physics_data.collision_objects.get_mut(&self.body)
@@ -564,6 +580,7 @@ impl RapierDirectBodyStateImpl {
         }
     }
 
+    #[cfg(not(feature = "api-4-4"))]
     pub(super) fn get_collision_layer(&self) -> u32 {
         let physics_data = physics_data();
         if let Some(body) = physics_data.collision_objects.get(&self.body)
@@ -574,6 +591,7 @@ impl RapierDirectBodyStateImpl {
         0
     }
 
+    #[cfg(not(feature = "api-4-4"))]
     pub(super) fn set_collision_mask(&mut self, mask: u32) {
         let physics_data = physics_data();
         if let Some(body) = physics_data.collision_objects.get_mut(&self.body)
@@ -583,6 +601,7 @@ impl RapierDirectBodyStateImpl {
         }
     }
 
+    #[cfg(not(feature = "api-4-4"))]
     pub(super) fn get_collision_mask(&self) -> u32 {
         let physics_data = physics_data();
         if let Some(body) = physics_data.collision_objects.get(&self.body)

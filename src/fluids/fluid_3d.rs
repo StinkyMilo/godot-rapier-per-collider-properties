@@ -10,26 +10,27 @@ use godot::prelude::*;
 use super::fluid_impl::FluidImpl;
 use crate::servers::RapierPhysicsServer;
 use crate::servers::rapier_project_settings::RapierProjectSettings;
+use crate::servers::try_physics_server_singleton;
 use crate::types::*;
 #[derive(GodotClass)]
 #[class(base=Node3D,tool)]
 /// The fluid node. Use this node to simulate fluids in 3D.
 pub struct Fluid3D {
-    #[var(get)]
+    #[var(no_set)]
     pub(crate) rid: Rid,
-    #[var(get)]
+    #[var(no_set)]
     pub(crate) radius: real,
     #[export]
-    #[var(get, set = set_debug_draw)]
+    #[var(set = set_debug_draw)]
     pub(crate) debug_draw: bool,
     #[export]
-    #[var(get, set = set_density)]
+    #[var(set = set_density)]
     pub(crate) density: real,
     #[export]
-    #[var(get, set = set_lifetime)]
+    #[var(set = set_lifetime)]
     pub(crate) lifetime: real,
     #[export]
-    #[var(get, set = set_effects)]
+    #[var(set = set_effects)]
     pub(crate) effects: Array<Option<Gd<Resource>>>,
 
     #[export]
@@ -40,10 +41,10 @@ pub struct Fluid3D {
     pub(crate) debug_multimesh_instance: Option<Gd<MultiMeshInstance3D>>,
 
     #[export_group(name = "Collision", prefix = "collision_")]
-    #[export(flags_2d_physics)]
+    #[export(flags_3d_physics)]
     #[var(get = get_collision_layer, set = set_collision_layer)]
     pub(crate) collision_layer: u32,
-    #[export(flags_2d_physics)]
+    #[export(flags_3d_physics)]
     #[var(get = get_collision_mask, set = set_collision_mask)]
     pub(crate) collision_mask: u32,
     base: Base<Node3D>,
@@ -79,6 +80,9 @@ impl Fluid3D {
         let mut mm_inst = MultiMeshInstance3D::new_alloc();
         mm_inst.set_multimesh(Some(&mm));
         mm_inst.set_visible(true);
+        if !mm_inst.is_instance_valid() {
+            return;
+        }
         self.debug_multimesh = Some(mm);
         self.debug_multimesh_instance = Some(mm_inst.clone());
         let node_variant = mm_inst.clone().upcast::<Node>().to_variant();
@@ -355,8 +359,10 @@ impl INode3D for Fluid3D {
 }
 impl Drop for Fluid3D {
     fn drop(&mut self) {
-        if self.rid != Rid::Invalid {
-            PhysicsServer::singleton().free_rid(self.rid);
+        if self.rid != Rid::Invalid
+            && let Some(mut physics_server) = try_physics_server_singleton()
+        {
+            physics_server.free_rid(self.rid);
         }
     }
 }

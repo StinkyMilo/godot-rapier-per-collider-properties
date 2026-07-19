@@ -1,10 +1,16 @@
+use std::collections::BTreeMap;
+
 use godot::prelude::*;
-use hashbrown::HashMap;
+#[cfg(feature = "serde-serialize")]
 use rapier::prelude::SharedShape;
 
+#[cfg(feature = "serde-serialize")]
 use crate::bodies::exportable_object::ExportToImport;
+#[cfg(feature = "serde-serialize")]
 use crate::bodies::exportable_object::ExportableObject;
+#[cfg(feature = "serde-serialize")]
 use crate::bodies::exportable_object::ImportToExport;
+#[cfg(feature = "serde-serialize")]
 use crate::bodies::exportable_object::ObjectImportState;
 use crate::bodies::rapier_collision_object::IRapierCollisionObject;
 use crate::rapier_wrapper::prelude::*;
@@ -14,10 +20,12 @@ use crate::servers::rapier_physics_singleton::get_id_rid;
 use crate::types::*;
 #[cfg_attr(feature = "serde-serialize", derive(serde::Serialize))]
 #[derive(Debug)]
+#[cfg(feature = "serde-serialize")]
 pub struct ShapeExport<'a> {
     state: &'a RapierShapeState,
     shape: &'a SharedShape,
 }
+#[cfg(feature = "serde-serialize")]
 impl<'a> ExportToImport for ShapeExport<'a> {
     type Import = ShapeImport;
 
@@ -29,10 +37,12 @@ impl<'a> ExportToImport for ShapeExport<'a> {
     }
 }
 #[cfg_attr(feature = "serde-serialize", derive(serde::Deserialize, Clone))]
+#[cfg(feature = "serde-serialize")]
 pub struct ShapeImport {
     state: RapierShapeState,
     shape: SharedShape,
 }
+#[cfg(feature = "serde-serialize")]
 impl ImportToExport for ShapeImport {
     type Export<'a> = ShapeExport<'a>;
 
@@ -50,14 +60,7 @@ impl ImportToExport for ShapeImport {
 #[derive(PartialEq, Clone, Debug, Default)]
 pub struct RapierShapeState {
     aabb: Rect,
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(
-            serialize_with = "rapier::utils::serde::serialize_to_vec_tuple",
-            deserialize_with = "rapier::utils::serde::deserialize_from_vec_tuple"
-        )
-    )]
-    owners: HashMap<RapierId, i32>,
+    owners: BTreeMap<RapierId, i32>,
     id: RapierId,
 }
 #[derive(Debug)]
@@ -94,7 +97,7 @@ impl RapierShapeBase {
     }
 
     pub fn call_shape_changed(
-        owners: HashMap<RapierId, i32>,
+        owners: BTreeMap<RapierId, i32>,
         shape_id: RapierId,
         physics_data: &mut PhysicsData,
     ) {
@@ -132,7 +135,7 @@ impl RapierShapeBase {
         }
     }
 
-    pub fn get_owners(&self) -> &HashMap<RapierId, i32> {
+    pub fn get_owners(&self) -> &BTreeMap<RapierId, i32> {
         &self.state.owners
     }
 

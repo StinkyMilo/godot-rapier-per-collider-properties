@@ -1,3 +1,4 @@
+use godot::classes::physics_server_2d::JointType;
 use godot::classes::*;
 use godot::prelude::*;
 
@@ -6,6 +7,7 @@ use super::rapier_joint_base::RapierJointType;
 use crate::bodies::rapier_collision_object::IRapierCollisionObject;
 use crate::bodies::rapier_collision_object::RapierCollisionObject;
 use crate::joints::rapier_joint::IRapierJoint;
+use crate::joints::rapier_joint::impl_rapier_joint_base;
 use crate::rapier_wrapper::prelude::*;
 use crate::servers::rapier_physics_singleton::RapierId;
 use crate::types::*;
@@ -44,7 +46,7 @@ impl RapierGrooveJoint2D {
         let point_a_1 = world_to_local_no_scale(&base_a.get_transform(), p_a_groove1);
         let point_a_2 = world_to_local_no_scale(&base_a.get_transform(), p_a_groove2);
         let axis = vector_normalized(point_a_2 - point_a_1);
-        let length = (point_a_2 - point_a_1).length();
+        let length = vector_length(point_a_2 - point_a_1);
         let rapier_axis = vector_to_rapier(axis);
         let rapier_limits = vector_to_rapier(Vector2::new(0.0, length));
         let rapier_anchor_a = vector_to_rapier(point_a_1);
@@ -70,16 +72,4 @@ impl RapierGrooveJoint2D {
         }
     }
 }
-impl IRapierJoint for RapierGrooveJoint2D {
-    fn get_type(&self) -> physics_server_2d::JointType {
-        physics_server_2d::JointType::GROOVE
-    }
-
-    fn get_base(&self) -> &RapierJointBase {
-        &self.base
-    }
-
-    fn get_mut_base(&mut self) -> &mut RapierJointBase {
-        &mut self.base
-    }
-}
+impl_rapier_joint_base!(RapierGrooveJoint2D, physics_server_2d::JointType::GROOVE);

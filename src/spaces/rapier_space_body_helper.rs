@@ -75,12 +75,12 @@ fn blocked_motion_tolerance(margin: Real) -> Real {
 }
 fn clamp_near_zero_safe_motion(motion: Vector, margin: Real, safe_fraction: &mut Real) {
     let tolerance = blocked_motion_tolerance(margin);
-    if *safe_fraction < 1.0 && motion.length() * *safe_fraction < tolerance {
+    if *safe_fraction < 1.0 && vector_length(motion) * *safe_fraction < tolerance {
         *safe_fraction = 0.0;
     }
 }
 fn clamp_near_zero_blocked_travel(motion: Vector, margin: Real, travel: &mut Vector) {
-    if motion.dot(*travel) > 0.0 && travel.length() < blocked_motion_tolerance(margin) {
+    if motion.dot(*travel) > 0.0 && vector_length(*travel) < blocked_motion_tolerance(margin) {
         *travel = Vector::default();
     }
 }
@@ -162,7 +162,7 @@ fn shape_contact_aabb(shape: &RapierShape, transform: Transform) -> Rect {
             }
         }
     }
-    Rect::from_corners(min, max)
+    Rect::from_position_end(min, max)
 }
 #[cfg(feature = "dim2")]
 fn is_valid_recovery_contact(
@@ -228,7 +228,7 @@ fn finish_small_body_motion(
     motion: Vector,
     result: &mut PhysicsServerExtensionMotionResult,
 ) -> bool {
-    if motion.length() >= MIN_MOTION_THRESHOLD {
+    if vector_length(motion) >= MIN_MOTION_THRESHOLD {
         return false;
     }
     result.travel = Vector::default();
@@ -352,19 +352,15 @@ impl RapierSpace {
         physics_collision_objects: &PhysicsCollisionObjects,
     ) -> bool {
         reset_body_motion_result(result);
-        // Skip processing if motion is too small (prevents infinite micro-adjustments)
-        if finish_small_body_motion(motion, result) {
-            return false;
-        }
         let mut body_transform = from; // Because body_transform needs to be modified during recovery
+        let is_small_motion = vector_length(motion) < MIN_MOTION_THRESHOLD;
         // Step 1: recover motion.
         // Expand the body colliders by the margin (grow) and check if now it collides with a collider,
         // if yes, "recover" / "push" out of this collider
         let mut recover_motion = Vector::default();
         let margin = Real::max(margin, TEST_MOTION_MARGIN);
-        let min_allowed_depth = motion
-            .length()
-            .min(margin * TEST_MOTION_MIN_CONTACT_DEPTH_FACTOR);
+        let min_allowed_depth =
+            vector_length(motion).min(margin * TEST_MOTION_MIN_CONTACT_DEPTH_FACTOR);
         let mut excluded_shape_pairs = [ExcludedShapePair::default(); MAX_EXCLUDED_SHAPE_PAIRS];
         let mut excluded_shape_pair_count = 0;
         let recovered = self.body_motion_recover(
@@ -380,31 +376,44 @@ impl RapierSpace {
             physics_ids,
             physics_collision_objects,
         );
+        // Skip processing if motion is too small, but only after recovery had a chance to push
+        // the body out of a moving platform.
+        if is_small_motion && !recovered {
+            finish_small_body_motion(motion, result);
+            return false;
+        }
+        let motion = if is_small_motion {
+            Vector::default()
+        } else {
+            motion
+        };
         // Step 2: Cast motion.
         // Try to to find what is the possible motion (how far it can move, it's a shapecast, when you try to find the safe point (max you can move without collision ))
         let mut best_safe = 1.0;
         let mut best_unsafe = 1.0;
         let mut best_body_shape = -1;
-        self.cast_motion(
-            body,
-            &body_transform,
-            motion,
-            collide_separation_ray,
-            self.get_contact_max_allowed_penetration(),
-            margin,
-            &mut best_safe,
-            &mut best_unsafe,
-            &mut best_body_shape,
-            &excluded_shape_pairs,
-            excluded_shape_pair_count,
-            physics_engine,
-            physics_shapes,
-            physics_ids,
-            physics_collision_objects,
-        );
-        // Far from the origin, parry can report a tiny safe fraction for perpendicular wall pushes.
-        // Godot treats this as no travel, so keep the collision and clamp only the safe motion.
-        clamp_near_zero_safe_motion(motion, margin, &mut best_safe);
+        if !is_small_motion {
+            self.cast_motion(
+                body,
+                &body_transform,
+                motion,
+                collide_separation_ray,
+                self.get_contact_max_allowed_penetration(),
+                margin,
+                &mut best_safe,
+                &mut best_unsafe,
+                &mut best_body_shape,
+                &excluded_shape_pairs,
+                excluded_shape_pair_count,
+                physics_engine,
+                physics_shapes,
+                physics_ids,
+                physics_collision_objects,
+            );
+            // Far from the origin, parry can report a tiny safe fraction for perpendicular wall pushes.
+            // Godot treats this as no travel, so keep the collision and clamp only the safe motion.
+            clamp_near_zero_safe_motion(motion, margin, &mut best_safe);
+        }
         // Step 3: Rest Info
         // Apply the motion and fill the collision information
         let mut collided = false;
@@ -645,7 +654,7 @@ impl RapierSpace {
             let recover_motion =
                 recover_motion_from_contacts(&sr, &priorities, contact_count, min_contact_depth);
             // Break if recovery motion is too small to be meaningful
-            if recover_motion.length() < MIN_RECOVERY_THRESHOLD {
+            if vector_length(recover_motion) < MIN_RECOVERY_THRESHOLD {
                 recovered = false;
                 break;
             }
@@ -791,7 +800,12 @@ impl RapierSpace {
                                         .get_base()
                                         .is_shape_set_as_one_way_collision(shape_index)
                                 {
-                                    let direction = -get_transform_forward(&col_shape_transform);
+                                    let direction = -get_one_way_valid_direction(
+                                        &col_shape_transform,
+                                        shape_col_object
+                                            .get_base()
+                                            .get_shape_one_way_collision_direction(shape_index),
+                                    );
                                     if let Some(motion_normal) = p_motion.try_normalized()
                                         && motion_normal.dot(direction) < 0.0
                                     {
@@ -1144,6 +1158,17 @@ fn get_transform_forward(transform: &Transform2D) -> Vector {
 fn get_transform_forward(transform: &Transform3D) -> Vector {
     -transform.basis.col_b()
 }
+#[cfg(feature = "dim2")]
+fn get_one_way_valid_direction(transform: &Transform2D, direction: Vector) -> Vector {
+    if direction.length_squared() <= DEFAULT_EPSILON {
+        return vector_normalized(get_transform_forward(transform));
+    }
+    vector_normalized(-transform.basis_xform(direction))
+}
+#[cfg(feature = "dim3")]
+fn get_one_way_valid_direction(transform: &Transform3D, _direction: Vector) -> Vector {
+    vector_normalized(get_transform_forward(transform))
+}
 fn one_way_valid_depth(
     owc_margin: f32,
     motion_margin: f32,
@@ -1153,7 +1178,7 @@ fn one_way_valid_depth(
 ) -> f32 {
     let mut valid_depth = owc_margin.max(motion_margin);
     let platform_motion = platform_linear_velocity * last_step;
-    let platform_motion_len = platform_motion.length();
+    let platform_motion_len = vector_length(platform_motion);
     if !platform_motion_len.is_zero_approx() {
         valid_depth +=
             platform_motion_len * vector_normalized(platform_motion).dot(-valid_dir).max(0.0);
@@ -1195,7 +1220,12 @@ impl PhysicsEngine {
                 .get_base()
                 .is_shape_set_as_one_way_collision(shape_index)
         {
-            let valid_dir = vector_normalized(get_transform_forward(col_shape_transform));
+            let valid_dir = get_one_way_valid_direction(
+                col_shape_transform,
+                collision_body
+                    .get_base()
+                    .get_shape_one_way_collision_direction(shape_index),
+            );
             let owc_margin = collision_body
                 .get_base()
                 .get_shape_one_way_collision_margin(shape_index);
@@ -1377,14 +1407,14 @@ mod tests {
     #[test]
     fn clamp_near_zero_safe_motion_sets_sub_epsilon_travel_to_zero() {
         let motion = x_motion(10.0);
-        let mut safe_fraction = (MOTION_EPSILON * 0.5) / motion.length();
+        let mut safe_fraction = (MOTION_EPSILON * 0.5) / vector_length(motion);
         clamp_near_zero_safe_motion(motion, 0.0, &mut safe_fraction);
         assert_eq!(safe_fraction, 0.0);
     }
     #[test]
     fn clamp_near_zero_safe_motion_keeps_meaningful_travel() {
         let motion = x_motion(10.0);
-        let mut safe_fraction = (blocked_motion_tolerance(0.0) * 2.0) / motion.length();
+        let mut safe_fraction = (blocked_motion_tolerance(0.0) * 2.0) / vector_length(motion);
         let expected = safe_fraction;
         clamp_near_zero_safe_motion(motion, 0.0, &mut safe_fraction);
         assert_eq!(safe_fraction, expected);
@@ -1392,7 +1422,7 @@ mod tests {
     #[test]
     fn clamp_near_zero_safe_motion_uses_margin_relative_tolerance() {
         let motion = x_motion(10.0);
-        let mut safe_fraction = 0.003 / motion.length();
+        let mut safe_fraction = 0.003 / vector_length(motion);
         clamp_near_zero_safe_motion(motion, 0.08, &mut safe_fraction);
         assert_eq!(safe_fraction, 0.0);
     }

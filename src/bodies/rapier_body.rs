@@ -1,6 +1,7 @@
 use bodies::rapier_collision_object_base::CollisionObjectShape;
 use bodies::rapier_collision_object_base::CollisionObjectType;
 use bodies::rapier_collision_object_base::RapierCollisionObjectBase;
+#[cfg(feature = "serde-serialize")]
 use bodies::rapier_collision_object_base::RapierCollisionObjectBaseState;
 #[cfg(feature = "dim2")]
 use godot::classes::physics_server_2d::*;
@@ -19,9 +20,13 @@ use servers::rapier_physics_singleton::RapierId;
 use servers::rapier_physics_singleton::get_id_rid;
 use shapes::rapier_shape::IRapierShape;
 
+#[cfg(feature = "serde-serialize")]
 use super::exportable_object::ExportToImport;
+#[cfg(feature = "serde-serialize")]
 use super::exportable_object::ExportableObject;
+#[cfg(feature = "serde-serialize")]
 use super::exportable_object::ImportToExport;
+#[cfg(feature = "serde-serialize")]
 use super::exportable_object::ObjectImportState;
 use super::rapier_area::RapierArea;
 use crate::bodies::rapier_collision_object::*;
@@ -92,10 +97,12 @@ impl IdWithPriority {
 }
 #[cfg_attr(feature = "serde-serialize", derive(serde::Serialize))]
 #[derive(Debug)]
+#[cfg(feature = "serde-serialize")]
 pub struct BodyExport<'a> {
     body_state: &'a RapierBodyState,
     base_state: &'a RapierCollisionObjectBaseState,
 }
+#[cfg(feature = "serde-serialize")]
 impl<'a> ExportToImport for BodyExport<'a> {
     type Import = BodyImport;
 
@@ -107,10 +114,12 @@ impl<'a> ExportToImport for BodyExport<'a> {
     }
 }
 #[cfg_attr(feature = "serde-serialize", derive(serde::Deserialize, Clone))]
+#[cfg(feature = "serde-serialize")]
 pub struct BodyImport {
     body_state: RapierBodyState,
     base_state: RapierCollisionObjectBaseState,
 }
+#[cfg(feature = "serde-serialize")]
 impl ImportToExport for BodyImport {
     type Export<'a> = BodyExport<'a>;
 
@@ -586,14 +595,12 @@ impl RapierBody {
                 space
                     .get_mut_state()
                     .body_remove_from_state_query_list(self.base.get_id());
+                space
+                    .get_mut_state()
+                    .body_remove_from_deactivated_state_sync_list(self.base.get_id());
             }
         } else {
             self.body_state_callback = Some(p_callable);
-            if let Some(space) = physics_spaces.get_mut(&self.base.get_space(physics_ids)) {
-                space
-                    .get_mut_state()
-                    .body_add_to_state_query_list(self.base.get_id());
-            }
         }
     }
 
@@ -612,8 +619,8 @@ impl RapierBody {
         self.force_integration_callback = None;
         if callable.is_valid() {
             self.force_integration_callback = Some(callable);
-            if let Some(ds) = &self.direct_state {
-                self.force_integration_array.push(&ds.to_variant());
+            if let Some(direct_state) = self.direct_state_variant() {
+                self.force_integration_array.push(&direct_state);
                 if !udata.is_nil() {
                     self.force_integration_array.push(&udata);
                 }
@@ -638,16 +645,42 @@ impl RapierBody {
         self.force_integration_callback.as_ref()
     }
 
-    pub fn create_direct_state(&mut self) {
-        if self.direct_state.is_none() {
+    fn direct_state_variant(&mut self) -> Option<Variant> {
+        if self
+            .direct_state
+            .as_ref()
+            .is_some_and(|direct_state| direct_state.is_instance_valid())
+        {
+            return self
+                .direct_state
+                .as_ref()
+                .map(|direct_state| direct_state.to_variant());
+        }
+        if self.direct_state.is_some() {
+            self.direct_state = None;
             self.direct_state_array.clear();
-            let mut direct_space_state = RapierDirectBodyState::new_alloc();
-            {
-                let mut direct_state = direct_space_state.bind_mut();
-                direct_state.set_body(self.base.get_rid());
-            }
-            self.direct_state_array
-                .push(&direct_space_state.clone().to_variant());
+        }
+        None
+    }
+
+    pub fn create_direct_state(&mut self) {
+        if self
+            .direct_state
+            .as_ref()
+            .is_some_and(|direct_state| direct_state.is_instance_valid())
+        {
+            return;
+        }
+        self.direct_state = None;
+        self.direct_state_array.clear();
+        let mut direct_space_state = RapierDirectBodyState::new_alloc();
+        {
+            let mut direct_state = direct_space_state.bind_mut();
+            direct_state.set_body(self.base.get_rid());
+        }
+        if direct_space_state.is_instance_valid() {
+            let direct_state = direct_space_state.to_variant();
+            self.direct_state_array.push(&direct_state);
             self.direct_state = Some(direct_space_state.upcast());
         }
     }
@@ -667,7 +700,7 @@ impl RapierBody {
             self.state
                 .areas
                 .push(IdWithPriority::new(area_id, priority));
-            self.state.areas.sort_by(|a, b| a.priority.cmp(&b.priority));
+            self.state.areas.sort_by_key(|a| a.priority);
             self.on_area_updated(space);
         }
     }
@@ -1261,11 +1294,19 @@ impl RapierBody {
                 space
                     .get_mut_state()
                     .body_add_to_active_list(self.base.get_id());
+                space
+                    .get_mut_state()
+                    .body_remove_from_deactivated_state_sync_list(self.base.get_id());
             }
         } else {
             space
                 .get_mut_state()
                 .body_remove_from_active_list(self.base.get_id());
+            if self.get_state_sync_callback().is_some() {
+                space
+                    .get_mut_state()
+                    .body_add_to_deactivated_state_sync_list(self.base.get_id());
+            }
         }
     }
 
@@ -1297,6 +1338,9 @@ impl RapierBody {
             space
                 .get_mut_state()
                 .body_add_to_active_list(self.base.get_id());
+            space
+                .get_mut_state()
+                .body_remove_from_deactivated_state_sync_list(self.base.get_id());
         }
     }
 
@@ -1527,7 +1571,7 @@ impl RapierBody {
                     if !self.using_area_linear_damping {
                         self.apply_linear_damping(
                             self.linear_damping,
-                            true,
+                            self.linear_damping_mode == BodyDampMode::COMBINE,
                             physics_engine,
                             physics_spaces,
                             physics_ids,
@@ -1547,7 +1591,7 @@ impl RapierBody {
                     if !self.using_area_angular_damping {
                         self.apply_angular_damping(
                             self.angular_damping,
-                            true,
+                            self.angular_damping_mode == BodyDampMode::COMBINE,
                             physics_engine,
                             physics_spaces,
                             physics_ids,
@@ -1710,6 +1754,9 @@ impl RapierBody {
                 space.get_mut_state().body_remove_from_state_query_list(id);
                 space
                     .get_mut_state()
+                    .body_remove_from_deactivated_state_sync_list(id);
+                space
+                    .get_mut_state()
                     .body_remove_from_force_integrate_list(id);
                 self.update_colliders_filters(physics_engine);
                 self.update_colliders_contact_events(physics_engine);
@@ -1748,7 +1795,10 @@ impl RapierBody {
                     return;
                 }
                 let old_scale = transform_scale(&self.base.get_transform());
-                let transform = p_variant.try_to().unwrap_or_default();
+                let mut transform: Transform = p_variant.try_to().unwrap_or_default();
+                if self.base.mode.ord() >= BodyMode::RIGID.ord() {
+                    transform = transform_orthonormalized(&transform);
+                }
                 let new_scale = transform_scale(&transform);
                 self.base.set_transform(transform, true, physics_engine);
                 if old_scale != new_scale {
@@ -2086,6 +2136,9 @@ impl RapierBody {
                 .get_mut_state()
                 .body_remove_from_gravity_update_list(id);
             space.get_mut_state().body_remove_from_active_list(id);
+            space
+                .get_mut_state()
+                .body_remove_from_deactivated_state_sync_list(id);
             space.get_mut_state().body_remove_from_state_query_list(id);
             space.get_mut_state().body_remove_from_area_update_list(id);
             space
@@ -2106,11 +2159,6 @@ impl RapierBody {
                 && let Some(space) = physics_spaces.get_mut(&self.base.get_space(physics_ids))
             {
                 space.get_mut_state().body_add_to_force_integrate_list(id);
-            }
-            if self.get_state_sync_callback().is_some()
-                && let Some(space) = physics_spaces.get_mut(&self.base.get_space(physics_ids))
-            {
-                space.get_mut_state().body_add_to_state_query_list(id);
             }
             if !self.can_sleep {
                 self.set_can_sleep(false, physics_engine);
@@ -2189,14 +2237,17 @@ impl RapierBody {
         }
     }
 
+    #[cfg(not(feature = "api-4-4"))]
     pub fn get_collision_layer(&self) -> u32 {
         self.base.get_collision_layer()
     }
 
+    #[cfg(not(feature = "api-4-4"))]
     pub fn get_collision_mask(&self) -> u32 {
         self.base.get_collision_mask()
     }
 
+    #[cfg(not(feature = "api-4-4"))]
     pub fn set_collision_layer(&mut self, layer: u32, physics_engine: &mut PhysicsEngine) {
         if self.base.get_collision_layer() != layer {
             self.base.set_collision_layer(layer, physics_engine);
@@ -2204,6 +2255,7 @@ impl RapierBody {
         }
     }
 
+    #[cfg(not(feature = "api-4-4"))]
     pub fn set_collision_mask(&mut self, mask: u32, physics_engine: &mut PhysicsEngine) {
         if self.base.get_collision_mask() != mask {
             self.base.set_collision_mask(mask, physics_engine);

@@ -9,6 +9,7 @@ use godot::classes::physics_server_3d;
 use godot::classes::physics_server_3d::*;
 use godot::global::rid_allocate_id;
 use godot::global::rid_from_int64;
+use godot::meta::conv::RawPtr;
 use godot::prelude::*;
 
 use super::rapier_physics_singleton::RapierId;
@@ -265,13 +266,13 @@ impl RapierPhysicsServerImpl {
         shape_b: Rid,
         xform_b: Transform,
         motion_b: Vector,
-        results: *mut c_void,
+        results: RawPtr<*mut c_void>,
         result_max: i32,
-        result_count: *mut i32,
+        result_count: RawPtr<*mut i32>,
     ) -> bool {
         let physics_data = physics_data();
-        if !result_count.is_null() {
-            unsafe { *result_count = 0 };
+        if !result_count.ptr().is_null() {
+            unsafe { *result_count.ptr() = 0 };
         }
         let [shape_a, shape_b] = physics_data.shapes.get_disjoint_mut([&shape_a, &shape_b]);
         let (Some(shape_a), Some(shape_b)) = (shape_a, shape_b) else {
@@ -283,7 +284,7 @@ impl RapierPhysicsServerImpl {
         let shape_b_info = shape_info_from_body_shape(shape_b_handle, xform_b);
         let rapier_a_motion = vector_to_rapier(motion_a);
         let rapier_b_motion = vector_to_rapier(motion_b);
-        let results_out: *mut Vector = results as *mut Vector;
+        let results_out: *mut Vector = results.ptr() as *mut Vector;
         let result = physics_data.physics_engine.shape_collide(
             rapier_a_motion,
             shape_a_info,
@@ -294,8 +295,8 @@ impl RapierPhysicsServerImpl {
             return false;
         }
         if result_max >= 1 {
-            if !result_count.is_null() {
-                unsafe { *result_count = 1 };
+            if !result_count.ptr().is_null() {
+                unsafe { *result_count.ptr() = 1 };
             }
             let vector2_slice: &mut [Vector] =
                 unsafe { std::slice::from_raw_parts_mut(results_out, result_max as usize * 2) };
@@ -344,8 +345,27 @@ impl RapierPhysicsServerImpl {
         false
     }
 
+    #[cfg(feature = "dim2")]
+    pub(super) fn space_set_param(&mut self, space: Rid, _param: SpaceParameter, _value: f32) {
+        let physics_data = physics_data();
+        if let Some(space) = physics_data.spaces.get_mut(&space) {
+            space.set_param(_param, _value);
+        }
+    }
+
+    #[cfg(feature = "dim2")]
+    pub(super) fn space_get_param(&self, space: Rid, _param: SpaceParameter) -> f32 {
+        let physics_data = physics_data();
+        if let Some(space) = physics_data.spaces.get(&space) {
+            return space.get_param(_param);
+        }
+        0.0
+    }
+
+    #[cfg(feature = "dim3")]
     pub(super) fn space_set_param(&mut self, _space: Rid, _param: SpaceParameter, _value: f32) {}
 
+    #[cfg(feature = "dim3")]
     pub(super) fn space_get_param(&self, _space: Rid, _param: SpaceParameter) -> f32 {
         0.0
     }
@@ -955,11 +975,16 @@ impl RapierPhysicsServerImpl {
         shape_idx: i32,
         enable: bool,
         margin: f32,
+        direction: Vector2,
     ) {
         let physics_data = physics_data();
         if let Some(body) = physics_data.collision_objects.get_mut(&body) {
-            body.get_mut_base()
-                .set_shape_as_one_way_collision(shape_idx as usize, enable, margin);
+            body.get_mut_base().set_shape_as_one_way_collision(
+                shape_idx as usize,
+                enable,
+                margin,
+                direction,
+            );
         }
     }
 
@@ -1539,9 +1564,9 @@ impl RapierPhysicsServerImpl {
         shape: Rid,
         shape_xform: Transform,
         motion: Vector,
-        results: *mut c_void,
+        results: RawPtr<*mut c_void>,
         result_max: i32,
-        result_count: *mut i32,
+        result_count: RawPtr<*mut i32>,
     ) -> bool {
         let physics_data = physics_data();
         let mut body_shape_rid = Rid::Invalid;
@@ -1604,6 +1629,9 @@ impl RapierPhysicsServerImpl {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// # Safety
+    ///
+    /// `result` must point to a valid writable Godot motion result for the duration of this call.
     pub unsafe fn body_test_motion(
         &self,
         body: Rid,
@@ -1613,7 +1641,7 @@ impl RapierPhysicsServerImpl {
         _max_collisions: i32,
         collide_separation_ray: bool,
         recovery_as_collision: bool,
-        result: *mut PhysicsServerExtensionMotionResult,
+        result: RawPtr<*mut PhysicsServerExtensionMotionResult>,
     ) -> bool {
         let physics_data = physics_data();
         if let Some(body) = physics_data.collision_objects.get(&body)
@@ -1622,7 +1650,7 @@ impl RapierPhysicsServerImpl {
                 .spaces
                 .get(&body.get_base().get_space(&physics_data.ids))
         {
-            let result: &mut PhysicsServerExtensionMotionResult = unsafe { &mut *result };
+            let result: &mut PhysicsServerExtensionMotionResult = unsafe { &mut *result.ptr() };
             return space.test_body_motion(
                 body,
                 from,
@@ -1672,20 +1700,44 @@ impl RapierPhysicsServerImpl {
     #[cfg(feature = "dim2")]
     pub(super) fn joint_set_param(&mut self, joint: Rid, param: JointParam, value: f32) {
         let physics_data = physics_data();
-        if let Some(joint) = physics_data.joints.get_mut(&joint)
-            && param == JointParam::MAX_FORCE
-        {
-            joint.get_mut_base().set_max_force(value);
+        if let Some(joint) = physics_data.joints.get_mut(&joint) {
+            match param {
+                // TODO: This should just call a new set_param on an IRapierJoint function.
+                // The joint implementations need to know when params are changing so that they
+                // can reset the Rapier joint.
+                // For now, only the revolute joint is using these parameters, so explicit update functions
+                // have been added just to revolute joint to avoid refactoring RapierJointBase and RapierJoint.
+                JointParam::MAX_FORCE => {
+                    joint.get_mut_base().set_max_force(value);
+                    if let RapierJoint::RapierRevoluteJoint(rev_joint) = joint {
+                        rev_joint.set_max_force(value, &mut physics_data.physics_engine);
+                    }
+                }
+                JointParam::BIAS => {
+                    if let RapierJoint::RapierRevoluteJoint(rev_joint) = joint {
+                        rev_joint.set_bias_param(value, &mut physics_data.physics_engine);
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
     #[cfg(feature = "dim2")]
     pub(super) fn joint_get_param(&self, joint: Rid, param: JointParam) -> f32 {
         let physics_data = physics_data();
-        if let Some(joint) = physics_data.joints.get(&joint)
-            && param == JointParam::MAX_FORCE
-        {
-            return joint.get_base().get_max_force();
+        if let Some(joint) = physics_data.joints.get(&joint) {
+            match param {
+                JointParam::MAX_FORCE => joint.get_base().get_max_force(),
+                JointParam::BIAS => {
+                    if let RapierJoint::RapierRevoluteJoint(rev_joint) = joint {
+                        rev_joint.get_bias_param()
+                    } else {
+                        0.0
+                    }
+                }
+                _ => 0.0,
+            };
         }
         0.0
     }
@@ -1900,26 +1952,26 @@ impl RapierPhysicsServerImpl {
             // The hinge axis should be the X-axis in the local frame
             // Construct a basis where X-axis is aligned with the given axis
             let basis_a = if axis_a.length_squared() > 0.0 {
-                let x_axis = axis_a.normalized();
+                let x_axis = vector_normalized(axis_a);
                 // Choose an arbitrary perpendicular vector for Y
                 let y_axis = if x_axis.abs().dot(Vector3::UP) < 0.99 {
-                    x_axis.cross(Vector3::UP).normalized()
+                    vector_normalized(x_axis.cross(Vector3::UP))
                 } else {
-                    x_axis.cross(Vector3::RIGHT).normalized()
+                    vector_normalized(x_axis.cross(Vector3::RIGHT))
                 };
-                let z_axis = x_axis.cross(y_axis).normalized();
+                let z_axis = vector_normalized(x_axis.cross(y_axis));
                 godot::prelude::Basis::from_cols(x_axis, y_axis, z_axis)
             } else {
                 godot::prelude::Basis::IDENTITY
             };
             let basis_b = if axis_b.length_squared() > 0.0 {
-                let x_axis = axis_b.normalized();
+                let x_axis = vector_normalized(axis_b);
                 let y_axis = if x_axis.abs().dot(Vector3::UP) < 0.99 {
-                    x_axis.cross(Vector3::UP).normalized()
+                    vector_normalized(x_axis.cross(Vector3::UP))
                 } else {
-                    x_axis.cross(Vector3::RIGHT).normalized()
+                    vector_normalized(x_axis.cross(Vector3::RIGHT))
                 };
-                let z_axis = x_axis.cross(y_axis).normalized();
+                let z_axis = vector_normalized(x_axis.cross(y_axis));
                 godot::prelude::Basis::from_cols(x_axis, y_axis, z_axis)
             } else {
                 godot::prelude::Basis::IDENTITY
@@ -2508,7 +2560,7 @@ impl RapierPhysicsServerImpl {
         let physics_data = physics_data();
         let mut space_to_reset = Rid::Invalid;
         if let Some(mut shape) = physics_data.shapes.remove(&rid) {
-            for (owner, _) in shape.get_base().get_owners() {
+            for owner in shape.get_base().get_owners().keys() {
                 if let Some(body) = physics_data
                     .collision_objects
                     .get_mut(&get_id_rid(*owner, &physics_data.ids))

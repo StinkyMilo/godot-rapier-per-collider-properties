@@ -111,6 +111,9 @@ impl RapierSpace {
                 result.body1 = collision_base_1.is_shape_set_as_one_way_collision(shape1);
                 result.pixel_body1_margin =
                     collision_base_1.get_shape_one_way_collision_margin(shape1);
+                result.body1_direction = vector_to_rapier(
+                    collision_base_1.get_shape_one_way_collision_direction(shape1),
+                );
                 if let Some(body1) = collision_object_1.get_body() {
                     result.previous_linear_velocity1 =
                         vector_to_rapier(body1.get_previous_linear_velocity());
@@ -118,6 +121,9 @@ impl RapierSpace {
                 result.body2 = collision_base_2.is_shape_set_as_one_way_collision(shape2);
                 result.pixel_body2_margin =
                     collision_base_2.get_shape_one_way_collision_margin(shape2);
+                result.body2_direction = vector_to_rapier(
+                    collision_base_2.get_shape_one_way_collision_direction(shape2),
+                );
                 if let Some(body2) = collision_object_2.get_body() {
                     result.previous_linear_velocity2 =
                         vector_to_rapier(body2.get_previous_linear_velocity());
@@ -147,12 +153,12 @@ impl RapierSpace {
             .get_removed_collider_info(&collider_handle1)
         {
             body_id1 = removed_collider_info_1.rb_id;
-            instance_id1 = removed_collider_info_1.instance_id;
+            instance_id1 = removed_collider_info_1.rb_id;
             type1 = removed_collider_info_1.collision_object_type;
             shape1 = removed_collider_info_1.shape_index;
         } else if let Some(body1) = physics_collision_objects.get(&p_object1) {
             body_id1 = body1.get_base().get_id();
-            instance_id1 = body1.get_base().get_instance_id();
+            instance_id1 = body1.get_base().get_id();
             type1 = body1.get_base().get_type();
         }
         if let Some(removed_collider_info_2) = self
@@ -160,12 +166,12 @@ impl RapierSpace {
             .get_removed_collider_info(&collider_handle2)
         {
             body_id2 = removed_collider_info_2.rb_id;
-            instance_id2 = removed_collider_info_2.instance_id;
+            instance_id2 = removed_collider_info_2.rb_id;
             type2 = removed_collider_info_2.collision_object_type;
             shape2 = removed_collider_info_2.shape_index;
         } else if let Some(body2) = physics_collision_objects.get(&p_object2) {
             body_id2 = body2.get_base().get_id();
-            instance_id2 = body2.get_base().get_instance_id();
+            instance_id2 = body2.get_base().get_id();
             type2 = body2.get_base().get_type();
         }
         if event_info.is_sensor {
@@ -320,7 +326,6 @@ impl RapierSpace {
                     body1.to_add_static_constant_angular_velocity(static_angvelocity_2);
                 }
                 if body1.can_report_contacts() {
-                    let instance_id2 = body2.get_base().get_instance_id();
                     body1.add_contact(
                         vector_to_godot(pos1),
                         vector_to_godot(-normal),
@@ -329,14 +334,13 @@ impl RapierSpace {
                         vector_to_godot(vel_pos1),
                         vector_to_godot(pos2),
                         shape2 as i32,
-                        instance_id2,
+                        body2.get_base().get_id(),
                         body2.get_base().get_id(),
                         vector_to_godot(vel_pos2),
                         impulse,
                     );
                 }
                 if body2.can_report_contacts() {
-                    let instance_id1 = body1.get_base().get_instance_id();
                     body2.add_contact(
                         vector_to_godot(pos2),
                         vector_to_godot(normal),
@@ -345,7 +349,7 @@ impl RapierSpace {
                         vector_to_godot(vel_pos2),
                         vector_to_godot(pos1),
                         shape1 as i32,
-                        instance_id1,
+                        body1.get_base().get_id(),
                         body1.get_base().get_id(),
                         vector_to_godot(vel_pos1),
                         -impulse,

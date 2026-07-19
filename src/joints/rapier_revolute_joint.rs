@@ -12,6 +12,8 @@ use crate::bodies::rapier_collision_object::RapierCollisionObject;
 use crate::joints::rapier_joint::IRapierJoint;
 use crate::rapier_wrapper::prelude::*;
 use crate::servers::rapier_physics_singleton::RapierId;
+#[cfg(feature = "dim2")]
+use crate::servers::rapier_physics_singleton::physics_data;
 use crate::types::Vector;
 #[cfg(feature = "dim3")]
 use crate::types::basis_to_rapier;
@@ -29,8 +31,7 @@ pub struct RapierRevoluteJoint {
     motor_stiffness: f32,
     motor_damping: f32,
     motor_position_enabled: bool,
-    #[cfg(feature = "dim3")]
-    motor_max_force: f32,
+    bias: f32,
     base: RapierJointBase,
 }
 impl RapierRevoluteJoint {
@@ -58,6 +59,7 @@ impl RapierRevoluteJoint {
             motor_stiffness: 0.0,
             motor_damping: 0.0,
             motor_position_enabled: false,
+            bias: 0.0,
             base: RapierJointBase::default(),
         };
         let body_a_rid = body_a.get_base().get_rid();
@@ -94,6 +96,7 @@ impl RapierRevoluteJoint {
             0.0,
             0.0,
             false,
+            f32::MAX,
             true,
         );
         Self {
@@ -107,6 +110,7 @@ impl RapierRevoluteJoint {
             motor_stiffness: 0.0,
             motor_damping: 0.0,
             motor_position_enabled: false,
+            bias: 0.0,
             base: RapierJointBase::new(id, rid, space_id, space_handle, handle, joint_type),
         }
     }
@@ -135,7 +139,7 @@ impl RapierRevoluteJoint {
             motor_stiffness: 0.0,
             motor_damping: 0.0,
             motor_position_enabled: false,
-            motor_max_force: 0.0,
+            bias: 0.0,
             base: RapierJointBase::default(),
         };
         let body_a_rid = body_a.get_base().get_rid();
@@ -186,7 +190,7 @@ impl RapierRevoluteJoint {
             motor_stiffness: 0.0,
             motor_damping: 0.0,
             motor_position_enabled: false,
-            motor_max_force: 0.0,
+            bias: 0.0,
             base: RapierJointBase::new(id, rid, space_id, space_handle, handle, joint_type),
         }
     }
@@ -229,6 +233,9 @@ impl RapierRevoluteJoint {
             self.motor_stiffness,
             self.motor_damping,
             self.motor_position_enabled,
+            self.base.get_max_force(),
+            self.get_final_bias(),
+            Self::estimate_physics_step(),
         );
     }
 
@@ -250,7 +257,7 @@ impl RapierRevoluteJoint {
         #[cfg(feature = "dim2")]
         let softness = self.softness;
         #[cfg(feature = "dim3")]
-        let softness: f32 = 1.0;
+        let softness: f32 = 0.0;
         physics_engine.joint_change_revolute_params(
             self.base.get_space_id(),
             self.base.get_handle(),
@@ -264,8 +271,9 @@ impl RapierRevoluteJoint {
             motor_stiffness,
             motor_damping,
             motor_position_enabled,
-            #[cfg(feature = "dim3")]
-            self.motor_max_force,
+            self.base.get_max_force(),
+            self.get_final_bias(),
+            Self::estimate_physics_step(),
         );
     }
 
@@ -287,7 +295,8 @@ impl RapierRevoluteJoint {
                 self.motor_target_velocity = p_value;
             }
             physics_server_3d::HingeJointParam::MOTOR_MAX_IMPULSE => {
-                self.motor_max_force = p_value / Self::estimate_physics_step();
+                self.base
+                    .set_max_force(p_value / Self::estimate_physics_step());
             }
             _ => {}
         }
@@ -302,12 +311,14 @@ impl RapierRevoluteJoint {
             self.angular_limit_enabled,
             self.motor_target_velocity,
             self.motor_enabled,
-            1.0,
+            0.0,
             self.motor_target_position,
             self.motor_stiffness,
             self.motor_damping,
             self.motor_position_enabled,
-            self.motor_max_force,
+            self.base.get_max_force(),
+            self.get_final_bias(),
+            Self::estimate_physics_step(),
         );
     }
 
@@ -322,21 +333,109 @@ impl RapierRevoluteJoint {
         }
     }
 
-    // This function is used to convert MOTOR_MAX_IMPULSE into a force which
-    // can be passed onto rapier.
+    #[cfg(feature = "dim2")]
+    fn get_final_bias(&self) -> f32 {
+        if self.bias == 0.0 {
+            let physics_data = physics_data();
+            if let Some(space) = physics_data
+                .spaces
+                .get_mut(&self.base.get_space(&physics_data.ids))
+            {
+                space.get_param(physics_server_2d::SpaceParameter::CONSTRAINT_DEFAULT_BIAS)
+            } else {
+                0.2
+            }
+        } else {
+            self.bias
+        }
+    }
+
     #[cfg(feature = "dim3")]
-    pub fn estimate_physics_step() -> f32 {
+    fn get_final_bias(&self) -> f32 {
+        self.bias
+    }
+
+    #[cfg(feature = "dim2")]
+    pub fn set_max_force(&mut self, force: f32, physics_engine: &mut PhysicsEngine) {
+        self.get_mut_base().set_max_force(force);
+
+        physics_engine.joint_change_revolute_params(
+            self.base.get_space_id(),
+            self.base.get_handle(),
+            self.angular_limit_lower,
+            self.angular_limit_upper,
+            self.angular_limit_enabled,
+            self.motor_target_velocity,
+            self.motor_enabled,
+            #[cfg(feature = "dim2")]
+            self.softness,
+            #[cfg(feature = "dim3")]
+            0.0,
+            self.motor_target_position,
+            self.motor_stiffness,
+            self.motor_damping,
+            self.motor_position_enabled,
+            self.base.get_max_force(),
+            self.get_final_bias(),
+            Self::estimate_physics_step(),
+        );
+    }
+
+    #[cfg(feature = "dim2")]
+    pub fn set_bias_param(&mut self, value: f32, physics_engine: &mut PhysicsEngine) {
+        self.bias = value;
+        if !self.base.is_valid() {
+            return;
+        }
+        physics_engine.joint_change_revolute_params(
+            self.base.get_space_id(),
+            self.base.get_handle(),
+            self.angular_limit_lower,
+            self.angular_limit_upper,
+            self.angular_limit_enabled,
+            self.motor_target_velocity,
+            self.motor_enabled,
+            #[cfg(feature = "dim2")]
+            self.softness,
+            #[cfg(feature = "dim3")]
+            0.0,
+            self.motor_target_position,
+            self.motor_stiffness,
+            self.motor_damping,
+            self.motor_position_enabled,
+            self.base.get_max_force(),
+            self.get_final_bias(),
+            Self::estimate_physics_step(),
+        );
+    }
+
+    #[cfg(feature = "dim2")]
+    pub fn get_bias_param(&self) -> f32 {
+        self.bias
+    }
+
+    // This function returns the time step, used to calculate softness and max_impulse.
+    // Parameters like softness and max_impulse are a design flaw in Godot.
+    // When the user changes time scale, or the physics step, softness and max_impulse
+    // can change, and that shouldn't happen.
+    //
+    // We can try hard to match Godot's bad behaviour, or we can match Godot at
+    // the default step rate and then not change the parameters the rest of the time.
+    // This is a judgement call.
+    // The writer feels that Rapier is being chosen because the user wants something
+    // better than Godot, so we should make these parameters invariant to time step.
+    fn estimate_physics_step() -> f32 {
         /*
-        // Use this method if we want to match Jolt's approach
-        // as of Godot 4.6.2 (However this approach perpetuates step variant behaviour)
-        let mut engine = <godot::classes::Engine as godot::obj::Singleton>::singleton();
+        // Use this method if we want to try to match Godot. We cannot match
+        // Godot exactly unless we reset all the revolute joint settings each time
+        // the step changes. This is a half measure which may be enough.
+        let engine = <godot::classes::Engine as godot::obj::Singleton>::singleton();
         let step = 1.0 / engine.get_physics_ticks_per_second() as f64;
         let step_scaled = step * engine.get_time_scale();
         step_scaled as f32
         */
-        // Use this method if we want consistent behaviour
-        // during time scaling or changing of physics rate
-        // when physics step is 60.0 (default) behaviour will match Jolt
+        // Use this method if we want time step invariant parameters.
+        // It will match Godot exactly when the physics step is the default 1.0/60.0
         1.0 / 60.0
     }
 
@@ -347,7 +446,7 @@ impl RapierRevoluteJoint {
             physics_server_3d::HingeJointParam::LIMIT_LOWER => self.angular_limit_lower,
             physics_server_3d::HingeJointParam::MOTOR_TARGET_VELOCITY => self.motor_target_velocity,
             physics_server_3d::HingeJointParam::MOTOR_MAX_IMPULSE => {
-                self.motor_max_force * Self::estimate_physics_step()
+                self.base.get_max_force() * Self::estimate_physics_step()
             }
             _ => 0.0,
         }
@@ -385,6 +484,9 @@ impl RapierRevoluteJoint {
             self.motor_stiffness,
             self.motor_damping,
             self.motor_position_enabled,
+            self.base.get_max_force(),
+            self.get_final_bias(),
+            Self::estimate_physics_step(),
         );
     }
 
@@ -415,12 +517,14 @@ impl RapierRevoluteJoint {
             self.angular_limit_enabled,
             self.motor_target_velocity,
             self.motor_enabled,
-            1.0,
+            0.0,
             self.motor_target_position,
             self.motor_stiffness,
             self.motor_damping,
             self.motor_position_enabled,
-            self.motor_max_force,
+            self.base.get_max_force(),
+            self.get_final_bias(),
+            Self::estimate_physics_step(),
         );
     }
 

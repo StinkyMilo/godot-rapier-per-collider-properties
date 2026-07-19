@@ -1,3 +1,4 @@
+use godot::classes::physics_server_2d::JointType;
 use godot::classes::*;
 use godot::prelude::*;
 
@@ -6,6 +7,7 @@ use super::rapier_joint_base::RapierJointType;
 use crate::bodies::rapier_collision_object::IRapierCollisionObject;
 use crate::bodies::rapier_collision_object::RapierCollisionObject;
 use crate::joints::rapier_joint::IRapierJoint;
+use crate::joints::rapier_joint::impl_rapier_joint_base;
 use crate::rapier_wrapper::prelude::*;
 use crate::servers::rapier_physics_singleton::RapierId;
 use crate::types::*;
@@ -49,7 +51,7 @@ impl RapierDampedSpringJoint2D {
             world_to_local_no_scale(&body_a.get_base().get_transform(), p_anchor_a);
         let rapier_anchor_b =
             world_to_local_no_scale(&body_b.get_base().get_transform(), p_anchor_b);
-        let rest_length = (p_anchor_a - p_anchor_b).length();
+        let rest_length = vector_length(p_anchor_a - p_anchor_b);
         let space_handle = body_a.get_base().get_space_id();
         let space_id = body_a.get_base().get_space_id();
         let handle = physics_engine.joint_create_spring(
@@ -111,16 +113,7 @@ impl RapierDampedSpringJoint2D {
         }
     }
 }
-impl IRapierJoint for RapierDampedSpringJoint2D {
-    fn get_type(&self) -> physics_server_2d::JointType {
-        physics_server_2d::JointType::DAMPED_SPRING
-    }
-
-    fn get_mut_base(&mut self) -> &mut RapierJointBase {
-        &mut self.base
-    }
-
-    fn get_base(&self) -> &RapierJointBase {
-        &self.base
-    }
-}
+impl_rapier_joint_base!(
+    RapierDampedSpringJoint2D,
+    physics_server_2d::JointType::DAMPED_SPRING
+);

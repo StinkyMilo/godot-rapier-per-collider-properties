@@ -72,6 +72,7 @@ fn convex_polyline_orientation(points: &[Vector]) -> Option<ConvexPolylineOrient
 }
 #[cfg(feature = "dim2")]
 fn sort_points_counter_clockwise(points: &[Vector]) -> Vec<Vector> {
+    use rapier::na::RealField;
     let mut center = Vector::ZERO;
     for point in points {
         center += *point;
@@ -79,8 +80,8 @@ fn sort_points_counter_clockwise(points: &[Vector]) -> Vec<Vector> {
     center /= points.len() as Real;
     let mut sorted = points.to_vec();
     sorted.sort_by(|a, b| {
-        let angle_a = (a.y - center.y).atan2(a.x - center.x);
-        let angle_b = (b.y - center.y).atan2(b.x - center.x);
+        let angle_a = RealField::atan2(a.y - center.y, a.x - center.x);
+        let angle_b = RealField::atan2(b.y - center.y, b.x - center.x);
         angle_a
             .partial_cmp(&angle_b)
             .unwrap_or(std::cmp::Ordering::Equal)
@@ -126,12 +127,11 @@ pub fn shape_info_from_body_shape(shape_handle: ShapeHandle, transform: Transfor
 }
 #[cfg(feature = "dim3")]
 pub fn shape_info_from_body_shape(shape_handle: ShapeHandle, transform: Transform) -> ShapeInfo {
-    let quaternion = transform.basis.get_quaternion();
-    let rotation = Rotation::from_xyzw(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
+    let rotation = types::basis_to_rapier(transform.basis);
     ShapeInfo {
         handle: shape_handle,
         transform: Pose::from_parts(vector_to_rapier(transform.origin), rotation),
-        scale: vector_to_rapier(transform.basis.get_scale()),
+        scale: vector_to_rapier(types::transform_scale(&transform)),
     }
 }
 impl PhysicsEngine {
@@ -290,8 +290,17 @@ impl PhysicsEngine {
         handle: ShapeHandle,
     ) {
         use rapier::parry::utils::Array2;
-        let width = width as usize;
-        let depth = depth as usize;
+        let width = width.max(0) as usize;
+        let depth = depth.max(0) as usize;
+        if width == 0 || depth == 0 || heights.len() < width * depth {
+            godot_error!(
+                "Heightmap requires width*depth ({}) heights, got {}",
+                width * depth,
+                heights.len()
+            );
+            self.remove_shape(handle);
+            return;
+        }
         let mut rotated_data = Vec::with_capacity(width * depth);
         for j in 0..width {
             for i in 0..depth {
@@ -329,6 +338,7 @@ impl PhysicsEngine {
         &mut self,
         points: &Vec<Vector>,
         indices: Option<Vec<[u32; 2]>>,
+        _backface_collision: bool,
         handle: ShapeHandle,
     ) {
         if points.is_empty() {
@@ -336,7 +346,15 @@ impl PhysicsEngine {
             return;
         }
         let points_vec = point_array_to_vec(points);
-        let shape = SharedShape::polyline(points_vec, indices);
+        let shape = if crate::servers::rapier_project_settings::RapierProjectSettings::get_oriented_concave_polyline() {
+            SharedShape::new(Polyline::with_flags(
+                points_vec,
+                indices,
+                PolylineFlags::ORIENTED,
+            ))
+        } else {
+            SharedShape::polyline(points_vec, indices)
+        };
         self.insert_shape(shape, handle);
     }
 
@@ -345,6 +363,7 @@ impl PhysicsEngine {
         &mut self,
         points: &Vec<Vector>,
         indices: Option<Vec<[u32; 3]>>,
+        backface_collision: bool,
         handle: ShapeHandle,
     ) {
         if points.is_empty() {
@@ -362,8 +381,15 @@ impl PhysicsEngine {
             self.remove_shape(handle);
             return;
         }
-        let shape =
-            SharedShape::trimesh_with_flags(points_vec, indices, TriMeshFlags::FIX_INTERNAL_EDGES);
+        // When backface collision is enabled the mesh must collide on both sides of its
+        // faces, so the ORIENTED flag (which constrains contacts to the outward face cone)
+        // must be dropped. Otherwise keep FIX_INTERNAL_EDGES for robust one-sided contacts.
+        let flags = if backface_collision {
+            TriMeshFlags::MERGE_DUPLICATE_VERTICES | TriMeshFlags::DELETE_DEGENERATE_TRIANGLES
+        } else {
+            TriMeshFlags::FIX_INTERNAL_EDGES
+        };
+        let shape = SharedShape::trimesh_with_flags(points_vec, indices, flags);
         match shape {
             Ok(s) => self.insert_shape(s, handle),
             Err(e) => {

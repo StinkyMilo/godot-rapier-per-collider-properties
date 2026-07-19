@@ -2,6 +2,7 @@ use godot::classes::ProjectSettings;
 use godot::prelude::*;
 
 use crate::servers::rapier_project_settings::RapierProjectSettings;
+use crate::types::PhysicsServer;
 const PLUGIN_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub mod rapier_math;
 #[cfg(feature = "dim2")]
@@ -16,21 +17,37 @@ pub mod rapier_project_settings;
 pub type RapierPhysicsServer = rapier_physics_server_2d::RapierPhysicsServer2D;
 #[cfg(feature = "dim3")]
 pub type RapierPhysicsServer = rapier_physics_server_3d::RapierPhysicsServer3D;
+pub(crate) fn try_physics_server_singleton() -> Option<Gd<PhysicsServer>> {
+    if godot::init::is_singleton_available::<PhysicsServer>() {
+        Some(PhysicsServer::singleton())
+    } else {
+        None
+    }
+}
+pub(crate) fn try_rapier_physics_server() -> Option<Gd<RapierPhysicsServer>> {
+    try_physics_server_singleton()?
+        .try_cast::<RapierPhysicsServer>()
+        .ok()
+}
 #[cfg(feature = "dim2")]
 pub fn register_server() {
     use godot::classes::PhysicsServer2DManager;
     let mut manager = PhysicsServer2DManager::singleton();
-    let factory =
-        crate::servers::rapier_physics_server_2d::RapierPhysicsServerFactory2D::new_alloc();
-    manager.register_server("Rapier2D", &factory.callable("create_server"));
+    let factory_class_name =
+        crate::servers::rapier_physics_server_2d::RapierPhysicsServerFactory2D::class_id()
+            .to_string_name();
+    let create_server = Callable::from_class_static(&factory_class_name, "create_server");
+    manager.register_server("Rapier2D", &create_server);
 }
 #[cfg(feature = "dim3")]
 pub fn register_server() {
     use godot::classes::PhysicsServer3DManager;
     let mut manager = PhysicsServer3DManager::singleton();
-    let factory =
-        crate::servers::rapier_physics_server_3d::RapierPhysicsServerFactory3D::new_alloc();
-    manager.register_server("Rapier3D", &factory.callable("create_server"));
+    let factory_class_name =
+        crate::servers::rapier_physics_server_3d::RapierPhysicsServerFactory3D::class_id()
+            .to_string_name();
+    let create_server = Callable::from_class_static(&factory_class_name, "create_server");
+    manager.register_server("Rapier3D", &create_server);
 }
 #[cfg(feature = "dim2")]
 fn print_version() {

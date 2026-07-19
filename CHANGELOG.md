@@ -1,5 +1,76 @@
 # Changelog
 
+## v0.8.40
+
+## v0.8.39
+
+## What's Changed
+* Udpate to latest rapier and parry by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/585
+* fix 3d joints inconsistencies by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/587
+
+
+**Full Changelog**: https://github.com/appsinacup/godot-rapier-physics/compare/v0.8.38...v0.8.39
+
+## v0.8.38
+
+## What's Changed
+* remove need for api-custom for non nightly build by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/571
+* fix for active callback not being called at right time by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/573
+* compute transform orthonormalized from parent, similar to how Godot does by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/574
+* Change AccelerationBased springs to ForceBased by @Schnorg in https://github.com/appsinacup/godot-rapier-physics/pull/577
+* fix to use correct flags 3d for fluid3d by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/578
+* use btreemap for stuff we serialize so order is maintinaed. Even though these are hashmaps, without order its harder to diff. by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/581
+* use salva from dimforge by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/582
+
+
+**Full Changelog**: https://github.com/appsinacup/godot-rapier-physics/compare/v0.8.37...v0.8.38
+
+## v0.8.37
+
+## What's Changed
+* Cross platform determinism tests by @RaphaelLEMAS in https://github.com/appsinacup/godot-rapier-physics/pull/561
+* enhanced-determinism feature does not guarantee cross-platform determinism for 3D by @RaphaelLEMAS in https://github.com/appsinacup/godot-rapier-physics/pull/564
+* use native quaternion manipulation instead of manually doing it by @RaphaelLEMAS in https://github.com/appsinacup/godot-rapier-physics/pull/565
+* Remove default features also so it's less confusing. by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/566
+* Possible fixes to crash on reload of server  by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/567
+* Fix crash by cloning list so it doesn't clash while iterating by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/569
+
+
+**Full Changelog**: https://github.com/appsinacup/godot-rapier-physics/compare/v0.8.36...v0.8.37
+
+## v0.8.36
+
+- Update to Godot 4.7 by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/560
+- Add rlib so it can be used as dependency directly.
+
+## v0.8.35
+
+## What's Changed
+
+- Fix 2D cross platform determinism by @RaphaelLEMAS in https://github.com/appsinacup/godot-rapier-physics/pull/559
+
+## v0.8.34
+
+## What's Changed
+- Fix PinJoint2D softness to match Godot by @Schnorg in https://github.com/appsinacup/godot-rapier-physics/pull/555
+- fix state manager cache state crash on Mac ARM by @RaphaelLEMAS in https://github.com/appsinacup/godot-rapier-physics/pull/557
+
+
+**Full Changelog**: https://github.com/appsinacup/godot-rapier-physics/compare/v0.8.33...v0.8.34
+
+## v0.8.33
+
+## What's Changed
+* update to godot rust 0.5.3 by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/537
+* implement get closest point. Use project_point by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/542
+* change from ColliderHandle to (other_collider, this_area_collider) by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/544
+* fix for leak by using for class static by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/552
+* Fix 2D contacts and shape cast queries by @Kyzzsa in https://github.com/appsinacup/godot-rapier-physics/pull/553
+* fix replace not overriding linear and angular damping and stationary character body by @Ughuuu in https://github.com/appsinacup/godot-rapier-physics/pull/554
+
+## New Contributors
+* @Kyzzsa made their first contribution in https://github.com/appsinacup/godot-rapier-physics/pull/553
+
 ## v0.8.32
 
 ## What's Changed

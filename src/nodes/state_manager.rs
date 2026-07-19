@@ -19,9 +19,9 @@ use crate::bodies::rapier_collision_object::IRapierCollisionObject;
 use crate::bodies::rapier_collision_object::RapierCollisionObject;
 use crate::servers::RapierPhysicsServer;
 use crate::servers::rapier_physics_singleton::physics_data;
+use crate::servers::try_rapier_physics_server;
 use crate::spaces::rapier_space::SpaceExport;
 use crate::spaces::rapier_space::SpaceImport;
-use crate::types::PhysicsServer;
 use crate::types::SerializationFormat;
 use crate::types::bin_to_packed_byte_array;
 #[cfg_attr(feature = "serde-serialize", derive(serde::Serialize))]
@@ -99,7 +99,7 @@ struct RawImportState {
     root_node: String,
     rapier_space: SpaceImport,
     physics_server_id: i64,
-    physics_objects_state: HashMap<String, CollatedObjectImportState>,
+    physics_objects_state: BTreeMap<String, CollatedObjectImportState>,
 }
 impl RawImportState {
     // Destroys (takes ownership of) the export object.
@@ -109,7 +109,7 @@ impl RawImportState {
             rapier_space: *export_state.rapier_space.into_import(), // Unbox the space state (boxed to keep down enum size)
             physics_server_id: export_state.physics_server_id,
             physics_objects_state: {
-                let mut phys_objs = HashMap::new();
+                let mut phys_objs = BTreeMap::new();
                 for (key, val) in export_state.physics_objects_state {
                     phys_objs.insert(key.clone(), val.into_collated_import());
                 }
@@ -556,15 +556,26 @@ impl StateManager {
                 nodes_to_remove.insert(nodepath_str);
             }
         }
-        // 5) Open the new intersections for our areas.
+        // 5) Open the new intersections for our areas, and re-register bodies for state sync.
+        // Importing the space cleared the state query list, and the physics step that would
+        // otherwise repopulate it (via after_step) is skipped during load. Without re-adding the
+        // bodies here, the final flush dispatches no state-sync callbacks and the Godot nodes are
+        // never moved to their imported transforms.
         for (_, collision_object) in physics_data.collision_objects.iter_mut() {
-            if collision_object.get_base().get_space_id() == space.get_state().get_id()
-                && let Some(area) = collision_object.get_mut_area()
-            {
+            if collision_object.get_base().get_space_id() != space.get_state().get_id() {
+                continue;
+            }
+            if let Some(area) = collision_object.get_mut_area() {
                 area.open_new_contacts(space, &new_intersections);
+            } else if let Some(body) = collision_object.get_mut_body()
+                && body.get_state_sync_callback().is_some()
+            {
+                space
+                    .get_mut_state()
+                    .body_add_to_state_query_list(body.get_base().get_id());
             }
         }
-        // Flush space queries one last time, to emit the newly opened events.
+        // Flush space queries one last time, to emit the newly opened events and sync body states.
         space.flush();
         RapierPhysicsServer::set_global_id(loaded_state.physics_server_id);
     }
@@ -584,8 +595,7 @@ impl StateManager {
                     let mut self_state: Option<ObjectExportState> = None;
                     let mut collated_shape_owners: BTreeMap<String, Vec<ObjectExportState>> =
                         BTreeMap::new();
-                    if let Some(mut co2d) =
-                        self.base().try_get_node_as::<CollisionObject2D>(&nodepath)
+                    if let Some(co2d) = self.base().try_get_node_as::<CollisionObject2D>(&nodepath)
                     {
                         let this_rid = co2d.get_rid();
                         self_state = self.get_physics_node_state(this_rid);
@@ -608,7 +618,7 @@ impl StateManager {
                         }
                     }
                     // Maybe could be tidier as a macro, to avoid duplication between 2D and 3D.
-                    else if let Some(mut co3d) =
+                    else if let Some(co3d) =
                         self.base().try_get_node_as::<CollisionObject3D>(&nodepath)
                     {
                         let this_rid = co3d.get_rid();
@@ -656,12 +666,9 @@ impl StateManager {
             // Now we've got references to all the owned states for our physics objects (for whatever export format we've selected).
             // For the Godot encodings, that means the state is stored in Variants; for bincode, it's just references to the raw state objects.
             // From this point, we need to build either a Godot dictionary (for JSON or GodotBase4 encoding) or a nested Rust Hashmap, for Bincode.
-            let physics_server_index: i64 = {
-                match PhysicsServer::singleton().try_cast::<RapierPhysicsServer>() {
-                    Ok(physics_singleton) => physics_singleton.bind().implementation.id as i64,
-                    Err(_) => 0,
-                }
-            };
+            let physics_server_index: i64 = try_rapier_physics_server()
+                .map(|physics_singleton| physics_singleton.bind().implementation.id as i64)
+                .unwrap_or(0);
             let Some(space_state) = self.get_physics_node_state(in_space) else {
                 godot_error!("Failed to export space state for RID {}!", in_space);
                 return None;
@@ -830,6 +837,9 @@ impl StateManager {
     fn collect_all_children_recursive(node: &Gd<Node>) -> Vec<Gd<Node>> {
         let mut descendants = Vec::new();
         for child in node.get_children().iter_shared() {
+            if !child.is_instance_valid() {
+                continue;
+            }
             descendants.push(child.clone());
             descendants.extend(StateManager::collect_all_children_recursive(&child));
         }

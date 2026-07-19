@@ -6,24 +6,6 @@ use crate::joints::rapier_joint_base::RapierJointType;
 use crate::rapier_wrapper::joint::glamx::Quat;
 use crate::rapier_wrapper::prelude::*;
 impl PhysicsEngine {
-    #[cfg(feature = "dim2")]
-    fn godot_spring_to_rapier_accel(stiffness: Real, damping: Real) -> (Real, Real) {
-        // Godot stiffness is in N/m, convert to frequency: omega = sqrt(k/m)
-        // For AccelerationBased, assume unit mass (m=1)
-        let omega = stiffness.sqrt();
-        // Calculate damping ratio from Godot damping: zeta = c / (2 * sqrt(k*m))
-        // For unit mass: zeta = c / (2 * sqrt(k))
-        let damping_ratio = if stiffness > 0.0 {
-            damping / (2.0 * stiffness.sqrt())
-        } else {
-            0.0
-        };
-        // Convert back to AccelerationBased stiffness/damping
-        let rapier_stiffness = omega * omega;
-        let rapier_damping = 2.0 * damping_ratio * omega;
-        (rapier_stiffness, rapier_damping)
-    }
-
     pub fn get_multibody_rigidbodies(
         &mut self,
         world_handle: WorldHandle,
@@ -111,8 +93,8 @@ impl PhysicsEngine {
         if let Some(physics_world) = self.get_world(world_handle)
             && let Some(joint) = physics_world.get_impulse_joint(joint_handle)
         {
-            body1 = Some(joint.body1);
-            body2 = Some(joint.body2);
+            body1 = Some(joint.body1());
+            body2 = Some(joint.body2());
         }
         if let Some(body1) = body1
             && let Some(body2) = body2
@@ -141,6 +123,7 @@ impl PhysicsEngine {
         motor_stiffness: Real,
         motor_damping: Real,
         motor_position_enabled: bool,
+        motor_max_force: Real,
         disable_collision: bool,
     ) -> JointHandle {
         self.body_wake_up(world_handle, body_handle_1, false);
@@ -150,7 +133,7 @@ impl PhysicsEngine {
                 .local_anchor1(anchor_1)
                 .local_anchor2(anchor_2)
                 .contacts_enabled(!disable_collision)
-                .motor_max_force(Real::MAX)
+                .motor_max_force(motor_max_force)
                 .motor_model(MotorModel::ForceBased);
             if angular_limit_enabled {
                 joint = joint.limits([angular_limit_lower, angular_limit_upper]);
@@ -211,7 +194,7 @@ impl PhysicsEngine {
             if motor_enabled {
                 joint = joint
                     .motor_velocity(JointAxis::AngX, motor_target_velocity, 0.0)
-                    .motor_model(JointAxis::AngX, MotorModel::AccelerationBased)
+                    .motor_model(JointAxis::AngX, MotorModel::ForceBased)
                     .motor_max_force(JointAxis::AngX, motor_max_force);
             } else if motor_position_enabled {
                 joint = joint
@@ -222,7 +205,7 @@ impl PhysicsEngine {
                         motor_damping,
                     )
                     .motor_max_force(JointAxis::AngX, Real::MAX)
-                    .motor_model(JointAxis::AngX, MotorModel::AccelerationBased);
+                    .motor_model(JointAxis::AngX, MotorModel::ForceBased);
             }
             return physics_world.insert_joint(
                 body_handle_1,
@@ -346,38 +329,58 @@ impl PhysicsEngine {
         motor_stiffness: Real,
         motor_damping: Real,
         motor_position_enabled: bool,
-        #[cfg(feature = "dim3")] motor_max_force: Real,
+        motor_max_force: Real,
+        bias: Real,
+        physics_step: Real,
     ) {
         self.joint_wake_up_connected_rigidbodies(world_handle, joint_handle);
         if let Some(physics_world) = self.get_mut_world(world_handle)
             && let Some(joint) = physics_world.get_mut_joint(joint_handle)
-            && let Some(joint) = joint.as_revolute_mut()
         {
-            joint.set_motor_model(MotorModel::AccelerationBased);
-            joint.set_motor_max_force(Real::MAX);
+            joint.set_motor_model(JointAxis::AngX, MotorModel::ForceBased);
+            joint.set_motor_max_force(JointAxis::AngX, motor_max_force);
             if angular_limit_enabled {
-                joint.set_limits([angular_limit_lower, angular_limit_upper]);
+                joint.set_limits(JointAxis::AngX, [angular_limit_lower, angular_limit_upper]);
             } else {
-                joint.data.limit_axes.remove(JointAxesMask::ANG_X);
+                joint.limit_axes.remove(JointAxesMask::ANG_X);
             }
             if motor_enabled {
-                joint.set_motor(0.0, motor_target_velocity, 0.0, 0.0);
-                #[cfg(feature = "dim3")]
-                joint.set_motor_max_force(motor_max_force);
+                joint.set_motor(JointAxis::AngX, 0.0, motor_target_velocity, 0.0, 0.0);
             } else if motor_position_enabled {
-                joint.set_motor(motor_target_position, 0.0, motor_stiffness, motor_damping);
+                joint.set_motor(
+                    JointAxis::AngX,
+                    motor_target_position,
+                    0.0,
+                    motor_stiffness,
+                    motor_damping,
+                );
             } else {
-                joint.data.motor_axes.remove(JointAxesMask::ANG_X);
+                joint.motor_axes.remove(JointAxesMask::ANG_X);
             }
-            if softness <= 0.0 {
-                joint.data.softness.natural_frequency = 1.0e6;
-                joint.data.softness.damping_ratio = 1.0;
+            #[cfg(feature = "dim2")]
+            if softness > 0.0 {
+                // Emulate softness by using ForceBased motor on LinX (coupled with LinY)
+                joint.locked_axes = JointAxesMask::FREE_FIXED_AXES;
+                joint.coupled_axes = JointAxesMask::LIN_AXES;
+                joint.set_motor_model(JointAxis::LinX, MotorModel::ForceBased);
+                joint.set_motor_max_force(JointAxis::LinX, Real::MAX);
+                // See Catto, Soft Constraints 2011 slides for CFM and ERP definitions
+                // softness = CFM / h, where h = time delta
+                // bias = ERP
+                // Catto 2011 shows CFM and ERP as they relate to k and c
+                // plug them in, rearrange, and you get the equations below to
+                // figure out k and c. Only works with a ForceBased spring.
+                let h: Real = physics_step;
+                let k: Real = bias / (h * h * softness);
+                let c: Real = (1.0 - bias) / (h * softness);
+                joint.set_motor(JointAxis::LinX, 0.0, 0.0, k, c);
             } else {
-                // Convert softness to damping parameters
-                let softness_clamped = softness.clamp(Real::EPSILON, 16.0);
-                joint.data.softness.natural_frequency = 10_f32.powf(3.0 - softness_clamped * 0.2);
-                joint.data.softness.damping_ratio = 10_f32.powf(-softness_clamped * 0.4375);
+                joint.locked_axes = JointAxesMask::LIN_AXES;
+                joint.coupled_axes = JointAxesMask::FREE_FIXED_AXES;
+                joint.motor_axes.remove(JointAxesMask::LIN_X);
             }
+            #[cfg(feature = "dim3")]
+            let _ = (softness, bias, physics_step);
         }
     }
 
@@ -426,10 +429,8 @@ impl PhysicsEngine {
         self.body_wake_up(world_handle, body_handle_1, false);
         self.body_wake_up(world_handle, body_handle_2, false);
         if let Some(physics_world) = self.get_mut_world(world_handle) {
-            let (rapier_stiffness, rapier_damping) =
-                Self::godot_spring_to_rapier_accel(stiffness, damping);
-            let joint = SpringJointBuilder::new(rest_length, rapier_stiffness, rapier_damping)
-                .spring_model(MotorModel::AccelerationBased)
+            let joint = SpringJointBuilder::new(rest_length, stiffness, damping)
+                .spring_model(MotorModel::ForceBased)
                 .local_anchor1(anchor_1)
                 .local_anchor2(anchor_2)
                 .contacts_enabled(!disable_collision);
@@ -451,15 +452,8 @@ impl PhysicsEngine {
         if let Some(physics_world) = self.get_mut_world(world_handle)
             && let Some(joint) = physics_world.get_mut_joint(joint_handle)
         {
-            let (rapier_stiffness, rapier_damping) =
-                Self::godot_spring_to_rapier_accel(stiffness, damping);
-            joint.set_motor_position(
-                JointAxis::LinX,
-                rest_length,
-                rapier_stiffness,
-                rapier_damping,
-            );
-            joint.set_motor_model(JointAxis::LinX, MotorModel::AccelerationBased);
+            joint.set_motor_position(JointAxis::LinX, rest_length, stiffness, damping);
+            joint.set_motor_model(JointAxis::LinX, MotorModel::ForceBased);
         }
     }
 
@@ -664,7 +658,7 @@ impl PhysicsEngine {
                 joint.set_motor_max_force(axis, motor_force_limit);
                 joint.set_motor(axis, 0.0, motor_target_velocity, 0.0, 0.0);
             } else if enable_spring {
-                joint.set_motor_model(axis, MotorModel::AccelerationBased);
+                joint.set_motor_model(axis, MotorModel::ForceBased);
                 joint.set_motor(
                     axis,
                     spring_equilibrium_point,

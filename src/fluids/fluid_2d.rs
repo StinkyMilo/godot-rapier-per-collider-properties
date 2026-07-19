@@ -5,26 +5,27 @@ use godot::prelude::*;
 use super::fluid_impl::FluidImpl;
 use crate::servers::RapierPhysicsServer;
 use crate::servers::rapier_project_settings::RapierProjectSettings;
+use crate::servers::try_physics_server_singleton;
 use crate::types::*;
 #[derive(GodotClass)]
 #[class(base=Node2D,tool)]
 /// The fluid node. Use this node to simulate fluids in 2D.
 pub struct Fluid2D {
-    #[var(get)]
+    #[var(no_set)]
     pub(crate) rid: Rid,
-    #[var(get)]
+    #[var(no_set)]
     pub(crate) radius: real,
     #[export]
-    #[var(get, set = set_debug_draw)]
+    #[var(set = set_debug_draw)]
     pub(crate) debug_draw: bool,
     #[export]
-    #[var(get, set = set_density)]
+    #[var(set = set_density)]
     pub(crate) density: real,
     #[export]
-    #[var(get, set = set_lifetime)]
+    #[var(set = set_lifetime)]
     pub(crate) lifetime: real,
     #[export]
-    #[var(get, set = set_effects)]
+    #[var(set = set_effects)]
     pub(crate) effects: Array<Option<Gd<Resource>>>,
 
     #[export]
@@ -262,19 +263,17 @@ impl INode2D for Fluid2D {
                 RapierPhysicsServer::fluid_set_space(rid, Rid::Invalid);
                 drop(guard);
             }
-            CanvasItemNotification::DRAW => {
-                if self.debug_draw {
-                    for point in self.get_points().as_slice() {
-                        let mut color = Color::WHITE;
-                        color.a = 0.4;
-                        self.to_gd().draw_rect(
-                            Rect2::new(
-                                *point - Vector2::new(self.radius / 2.0, self.radius / 2.0),
-                                Vector2::new(self.radius, self.radius),
-                            ),
-                            color,
-                        );
-                    }
+            CanvasItemNotification::DRAW if self.debug_draw => {
+                for point in self.get_points().as_slice() {
+                    let mut color = Color::WHITE;
+                    color.a = 0.4;
+                    self.to_gd().draw_rect(
+                        Rect2::new(
+                            *point - Vector2::new(self.radius / 2.0, self.radius / 2.0),
+                            Vector2::new(self.radius, self.radius),
+                        ),
+                        color,
+                    );
                 }
             }
             _ => {}
@@ -283,8 +282,10 @@ impl INode2D for Fluid2D {
 }
 impl Drop for Fluid2D {
     fn drop(&mut self) {
-        if self.rid != Rid::Invalid {
-            PhysicsServer::singleton().free_rid(self.rid);
+        if self.rid != Rid::Invalid
+            && let Some(mut physics_server) = try_physics_server_singleton()
+        {
+            physics_server.free_rid(self.rid);
         }
     }
 }

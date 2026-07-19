@@ -5,7 +5,7 @@
 <p align="center">
         <img src="https://github.com/appsinacup/godot-rapier-physics/actions/workflows/runner.yml/badge.svg?branch=main"
             alt="Godot Rapier Build"></a>
-        <img src="https://img.shields.io/badge/Godot-4.6-%23478cbf?logo=godot-engine&logoColor=white" />
+        <img src="https://img.shields.io/badge/Godot-4.7-%23478cbf?logo=godot-engine&logoColor=white" />
 </p>
 
 
@@ -48,23 +48,76 @@ No Ghost Collisions|Improved Stacking
 ![](docs/ghost_collisions.gif)|![](docs/stacking.png)
 
 **Serialization**|**Deserialization**
+-|-
 Save Physics State|Load Physics State
+
 **Locally Deterministic**|***Optionally Cross Platform Deterministic**
+-|-
 Exact simulation every time (on same platform)|Exact simulation on multiple platforms
 
 # Installation
 
-- Automatic (Recommended): Download the plugin from the official [Godot Asset Store](https://godotengine.org/asset-library/asset/2267) using the `AssetLib` tab in Godot:
-    - [Rapier Physics 2D - Fast Version with Parallel SIMD Solver](https://godotengine.org/asset-library/asset/2267)
-    - [Rapier Physics 2D - Slower Version with Cross Platform Deterministic](https://godotengine.org/asset-library/asset/2815)
-    - [Rapier Physics 3D - Fast Version with Parallel SIMD Solver](https://godotengine.org/asset-library/asset/3084)
-    - [Rapier Physics 3D - Slower Version with Cross Platform Deterministic](https://godotengine.org/asset-library/asset/3085)
+- Automatic (Recommended): Download the plugin from the official [Godot Asset Store](https://store.godotengine.org) using the `Asset Store` tab in Godot:
+    - [Rapier Physics 2D - Fast Version with Parallel SIMD Solver](https://store.godotengine.org/asset/appsinacup/rapier-physics-2d-fast-version-with-parallel-simd-solver/)
+    - [Rapier Physics 2D - Slower Version with Cross Platform Deterministic](https://store.godotengine.org/asset/appsinacup/rapier-physics-2d-slower-version-with-cross-platform-deterministic/)
+    - [Rapier Physics 3D - Fast Version with Parallel SIMD Solver](https://store.godotengine.org/asset/appsinacup/rapier-physics-3d-fast-version-with-parallel-simd-solver/)
+    - [Rapier Physics 3D - Slower Version with Cross Platform Deterministic](https://store.godotengine.org/asset/appsinacup/rapier-physics-3d-slower-version-with-cross-platform-deterministic/)
 
     Note: For general use cases, use the **Faster Version**.
 
 - Manual: Download the [latest github release](https://github.com/appsinacup/godot-rapier-physics/releases/latest) and move only the `addons` folder into your project `addons` folder.
 
 After installing, go to `Advanced Settings` -> `Physics` -> `2D` or `3D`. Change `Physics Engine` to `Rapier2D` or `Rapier3D`.
+
+# Rust dependency
+
+See [godot-rust/ExtensionLibrary](https://godot-rust.github.io/docs/gdext/master/godot/init/trait.ExtensionLibrary.html#using-other-gdextension-libraries-as-dependencies).
+
+```toml
+[dependencies]
+godot-rapier = { git = "https://github.com/appsinacup/godot-rapier-physics.git", tag = "v0.8.40", features = ["single-dim2"] }
+```
+
+Feature sets matching the shipped addon variants:
+
+| Variant | Features |
+| - | - |
+| 2D fast parallel | `single-dim2`, `serde-serialize`, `simd-stable`, `parallel`, `experimental-threads`, `register-docs`, `api-4-7` |
+| 3D fast parallel | `single-dim3`, `serde-serialize`, `simd-stable`, `parallel`, `experimental-threads`, `register-docs`, `api-4-7` |
+| 2D enhanced deterministic | `single-dim2`, `serde-serialize`, `enhanced-determinism`, `experimental-threads`, `register-docs`, `api-4-7` |
+| 3D enhanced deterministic | `single-dim3`, `serde-serialize`, `enhanced-determinism`, `experimental-threads`, `register-docs`, `api-4-7` |
+
+Use exactly one Godot API feature: `api-4-4`, `api-4-5`, `api-4-6`, or `api-4-7`.
+
+For web/Emscripten builds, replace native `experimental-threads` with one web feature: `experimental-wasm` for threaded web builds, or `experimental-wasm-nothreads` for no-thread web builds. `experimental-wasm-nothreads` includes `experimental-wasm`. CI builds web with `wasm32-unknown-emscripten`, `release-wasm`, and `-Zbuild-std`.
+
+When depending on another GDExtension crate, set `GDRUST_MAIN_EXTENSION` to your extension's `ExtensionLibrary` type and explicitly forward Godot Rapier's init stages from your extension. Godot only runs one main `ExtensionLibrary`, so the user's extension must register the Rapier server and classes too:
+
+```rust
+use godot::prelude::*;
+use godot_rapier::RapierPhysics3DExtensionLibrary;
+
+struct MyExtension;
+
+#[gdextension]
+unsafe impl ExtensionLibrary for MyExtension {
+    fn min_level() -> InitLevel {
+        InitLevel::Servers
+    }
+
+    fn on_stage_init(level: InitStage) {
+        RapierPhysics3DExtensionLibrary::on_stage_init(level);
+    }
+
+    fn on_stage_deinit(level: InitStage) {
+        RapierPhysics3DExtensionLibrary::on_stage_deinit(level);
+    }
+}
+```
+
+For 2D projects, use `RapierPhysics2DExtensionLibrary`.
+
+Do not load the standalone Godot Rapier addon in the same Godot project when bundling it through another Rust GDExtension, because Godot classes can be registered twice.
 
 # Youtube Videos
 
@@ -82,7 +135,7 @@ The 2D part is pretty stable, though there are some issues, the 3D part is still
 
 # Limitations
 
-- Double builds are disabled for now (until salva supports double builds)
+- Double builds need to be manually built.
 - No support for asymmetric collisions (eg. object 1 hitting object 2 but object 2 not hitting object 1). This is the exact check rapier does: `(A.layer & B.mask) != 0 || (B.layer & A.mask) != 0`
 
 # Module build
